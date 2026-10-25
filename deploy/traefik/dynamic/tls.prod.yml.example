@@ -1,0 +1,11 @@
+# TLS for students.iima.ac.in. Copy to /etc/traefik/dynamic/tls.yml on the entry node.
+# The certificate files come from IIMA IT (or switch to Let's Encrypt with a certificatesResolver
+# in traefik.prod.yml if the host is reachable for the ACME challenge).
+tls:
+  certificates:
+    - certFile: /etc/traefik/certs/students.iima.ac.in.crt
+      keyFile: /etc/traefik/certs/students.iima.ac.in.key
+  options:
+    default:
+      minVersion: VersionTLS12
+      sniStrict: false

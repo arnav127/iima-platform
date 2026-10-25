@@ -42,10 +42,19 @@ why. Run everything alongside today's Apache setup until an app is cut over; not
 - [ ] Before Auxesis cuts over: grant today's `ADMIN_EMAILS` the `admin` role on the platform
 
 ## Phase 4: the cluster
-- [ ] Nomad: 3 servers (also clients) + 1 client, ACLs, `exec` driver, Node and Python runtimes on every client
-- [ ] Traefik on the entry node with the Nomad provider, HTTP/2 and HTTP/3, TLS
-- [ ] Host volumes for app data; scheduled Nomad snapshots; off-box backups
-- [ ] Nomad jobs for `core` and Auxesis; firewall so app ports are cluster-only
+Everything below is written and tested on a local Nomad (`devstack -nomad`); the unticked items
+are the steps that need the campus servers. Runbook: `docs/cluster.md`.
+
+- [x] Job generator from `app.toml` (`core/jobgen`, `go run ./cmd/jobgen`): routes and middlewares from the reviewed manifest, health checks, secrets from Nomad Variables, auto-revert
+- [x] Local twin of the cluster: `devstack -nomad` runs core and apps as Nomad jobs, Traefik with the Nomad provider; a broken release rolls back by itself
+- [x] Server setup script (`deploy/servers/setup.sh`): pinned Nomad and Traefik, agent config, ACL policies, systemd units, nftables rules, daily Nomad snapshots
+- [x] Traefik production config: HTTP/2, HTTP/3, TLS from IT's certificate, Nomad provider, internal entry point for core
+- [x] Core job (`deploy/nomad/core.nomad.hcl`) and dynamic host volumes for app data
+- [ ] Nomad: 3 servers (also clients) + 1 client running, ACLs bootstrapped, Node and Python runtimes on every client
+- [ ] Traefik live on the entry node with the certificate
+- [ ] Off-box backups (needs a place to put them: see open questions)
+- [ ] Core and Auxesis deployed as jobs; firewall applied
+- [ ] Release artifacts for core and Auxesis (built by hand until the CI workflow in phase 8)
 - [ ] Cut over `/auxesiscapital` from Apache to Traefik; keep a rollback path
 
 ## Phase 5: the other Go + PocketBase apps

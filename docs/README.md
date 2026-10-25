@@ -2,6 +2,8 @@
 
 Short how-tos for whoever runs the platform this year. Filled in as each phase lands.
 
+Setting up the servers, deploying, rolling back and the Auxesis cut-over: [cluster.md](cluster.md).
+
 ## How a request is authenticated
 
 1. Traefik receives `GET /demo/page` and drops any `X-User-*` and `Authorization` headers.

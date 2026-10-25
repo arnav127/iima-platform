@@ -36,9 +36,17 @@ cd ../auxesiscapital && VITE_BASE=/auxesiscapital/ npm run build && cd ../iima-p
 go run ./dev/cmd/devstack -app auxesiscapital=../auxesiscapital
 ```
 
-The app's env (e.g. `ADMIN_EMAILS`) comes from your shell; its data lives in `.dev/data/<id>`.
+The app's env (e.g. `PRICE_HISTORY=off`) comes from your shell; its data lives in `.dev/data/<id>`.
 In Git Bash, prefix the build with `MSYS_NO_PATHCONV=1` so `/auxesiscapital/` is not turned into a
 Windows path.
+
+Add `-nomad` to run the cluster's layout instead: a local Nomad agent (downloaded and pinned like
+Traefik), core and every app as Nomad jobs generated from their manifests, and Traefik reading the
+routes from Nomad. The Nomad UI is at http://127.0.0.1:4646/ui. See [docs/cluster.md](docs/cluster.md)
+for the real servers.
+
+Super admins: `cd core && CORE_DATA=../.dev/core-data go run ./cmd/core superadmin add you@iima.ac.in`,
+then open http://localhost:8080/admin.
 
 ## Layout
 
@@ -50,7 +58,8 @@ Windows path.
 | `kit-js/` | `@iima/kit` for frontends: `api`, `me`, `login`, `logout`, router, stores. (`/next` in phase 6.) |
 | `apps/` | One `app.toml` per app: the registry. |
 | `deploy/traefik/` | Gateway config and the `platformstrip` plugin. |
-| `deploy/nomad/` | Job specs (phase 4). |
+| `deploy/nomad/` | Core job, cluster settings, agent config template, ACL policies, volume example. |
+| `deploy/servers/` | `setup.sh` for each campus server, systemd units, firewall, snapshot timer. |
 | `dev/` | The dev stack command, the stub app and its manifests. |
 | `docs/` | Maintainer handbook. |
 

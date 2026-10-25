@@ -1,0 +1,65 @@
+# Static config for the gateway on the entry node. Installed by deploy/servers/setup.sh as
+# /etc/traefik/traefik.yml and run by systemd (not by Nomad, so the front door does not depend on
+# the scheduler). The dynamic config (platform.yml, tls.yml) lives in /etc/traefik/dynamic.
+entryPoints:
+  http:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: public
+          scheme: https
+  public:
+    address: ":443"
+    asDefault: true
+    http:
+      aliasHeadersStrategy: delete
+      tls: {} # certificate from dynamic/tls.yml
+    http3: {} # needs UDP 443 open
+    transport:
+      respondingTimeouts:
+        readTimeout: 60s
+        idleTimeout: 180s
+  # Traefik's own way to reach core (forward auth and core's routes), routed on to core@nomad.
+  internal:
+    address: "127.0.0.1:8081"
+    # Forward auth arrives here from Traefik itself; keep its X-Forwarded-Uri and -Method, which
+    # Traefik otherwise strips from untrusted clients and core needs to find the app.
+    forwardedHeaders:
+      trustedIPs: ["127.0.0.1/32", "::1/128"]
+  # Prometheus metrics for Grafana (phase 9); cluster-only by firewall.
+  metrics:
+    address: ":8082"
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+  nomad:
+    exposedByDefault: false
+    endpoint:
+      address: "http://127.0.0.1:4646"
+      token: "" # set by setup.sh from TRAEFIK_NOMAD_TOKEN (read-only ACL policy traefik.hcl)
+
+experimental:
+  localPlugins:
+    platformstrip:
+      moduleName: github.com/arnav127/iima-platform/deploy/traefik/plugins/platformstrip
+
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addRoutersLabels: true
+
+log:
+  level: INFO
+
+accessLog:
+  filePath: /var/log/traefik/access.log
+  fields:
+    headers:
+      defaultMode: drop

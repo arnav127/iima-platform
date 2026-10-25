@@ -1,0 +1,6 @@
+[Unit]
+Description=Save a Nomad snapshot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/nomad-snapshot

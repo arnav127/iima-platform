@@ -75,9 +75,12 @@ So the platform must support **four app shapes**, not one:
 - **Nomad ACLs on from the start.** Only the deploy portal and super admins can submit jobs.
 - **Drivers:** `exec` for Go binaries. Node and Python apps use `exec`/`raw_exec` with the runtime installed on every client (Node 22, Python with per-app venv built in CI).
 - **Dynamic ports.** Apps listen on `NOMAD_IP_http:NOMAD_PORT_http`. The kits read these automatically.
-- **PocketBase data lives on a host volume** outside the job's directory, and the job is pinned to that node, so a redeploy can never start an app on an empty database.
+- **PocketBase data lives on a host volume** outside the job's directory, and the job is pinned to that node, so a redeploy can never start an app on an empty database. **Dynamic host volumes** (`nomad volume create`), so a new app needs no change to a node's config.
 - Secrets in **Nomad Variables** (encrypted, per job), injected as env. Config files in Git encrypted with **sops**.
 - Snapshot Nomad's own state on a schedule (`nomad operator snapshot save`).
+- **Jobs are generated from the manifest** (`core/jobgen`), never written by app authors: the Traefik tags (routes, middlewares, path strip) come from the reviewed `app.toml`, which together with Nomad ACLs keeps an app from claiming another's path.
+- **Deploys:** one instance per SQLite app, so a deploy stops the old copy before starting the new. A release that fails its health check reverts by itself (`restart` mode `fail`, `auto_revert`), after about the 3-minute progress deadline; that is the cost of a broken release. Stateless apps (Next.js) can use canaries later.
+- **Traefik runs under systemd on the entry node,** not as a Nomad job, so the front door does not depend on the scheduler. It reaches core through an `internal` entry point (127.0.0.1:8081) that core's job routes on to wherever Nomad placed it; forward auth uses the same address, so core can move or (phase 7) run twice without touching Traefik's config.
 
 ## The core app (`core`)
 
@@ -315,6 +318,8 @@ like ours is allowed.
 ## Open questions
 
 - Which server hosts what today, and where does `chatbot.iima.ac.in` (used by BetaMarkets' PocketBase URL) fit?
+- For the cluster: each machine's OS, private IP and interface; which one faces the internet (the entry node); whether IT provides the TLS certificate for students.iima.ac.in or Let's Encrypt can reach it; how `students.iima.ac.in` reaches the entry node today (DNS to Apache, or a campus proxy).
+- Off-box backups: where (another campus machine, an S3-compatible bucket, institute storage)?
 - Will IT give a second hostname for unreviewed apps?
 - Can the institute share a roll list for attributes, or do email patterns have to do?
 - Portfolio League: confirm it is fully on PocketBase now (README still describes Supabase and Vercel).

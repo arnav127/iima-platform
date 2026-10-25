@@ -1,0 +1,23 @@
+# Inbound firewall for a platform node, rendered by setup.sh. Outbound is open.
+#   - SSH from anywhere (narrow it to the campus range if IT agrees)
+#   - everything between cluster nodes (Nomad 4646-4648, app ports 20000-32000, metrics)
+#   - 80 and 443 only on the entry node
+# App ports are therefore never reachable from outside the cluster: only through Traefik.
+table inet iima
+delete table inet iima
+
+table inet iima {
+  chain input {
+    type filter hook input priority 0; policy drop;
+
+    ct state established,related accept
+    ct state invalid drop
+    iif lo accept
+    icmp type echo-request accept
+    icmpv6 type { echo-request, nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert } accept
+
+    tcp dport 22 accept
+    ip saddr ${CLUSTER_CIDR} accept
+    ${ENTRY_RULES}
+  }
+}

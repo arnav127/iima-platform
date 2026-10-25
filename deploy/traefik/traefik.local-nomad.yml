@@ -1,0 +1,42 @@
+# Static config for the local stack in Nomad mode (devstack -nomad): the cluster's layout on one
+# laptop. Apps and core run as Nomad jobs; Traefik reads their routes from Nomad's service catalogue.
+entryPoints:
+  public:
+    address: "127.0.0.1:8080"
+    asDefault: true
+    http:
+      aliasHeadersStrategy: delete
+  # Traefik's own way to reach core, wherever Nomad runs it. Forward auth and core's routes go
+  # here, and the core job's tags route it on to core@nomad. Localhost only.
+  internal:
+    address: "127.0.0.1:8081"
+    # Forward auth arrives here from Traefik itself; keep its X-Forwarded-Uri and -Method, which
+    # Traefik otherwise strips from untrusted clients and core needs to find the app.
+    forwardedHeaders:
+      trustedIPs: ["127.0.0.1/32", "::1/128"]
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+providers:
+  file:
+    directory: dynamic
+    watch: true
+  nomad:
+    exposedByDefault: false # only jobs with traefik.enable=true (written by jobgen)
+    endpoint:
+      address: "http://127.0.0.1:4646"
+
+experimental:
+  localPlugins:
+    platformstrip:
+      moduleName: github.com/arnav127/iima-platform/deploy/traefik/plugins/platformstrip
+
+log:
+  level: INFO
+
+accessLog:
+  fields:
+    headers:
+      defaultMode: drop

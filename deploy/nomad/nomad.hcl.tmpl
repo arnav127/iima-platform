@@ -1,0 +1,65 @@
+# Nomad agent config, rendered by deploy/servers/setup.sh into /etc/nomad.d/nomad.hcl.
+# ${...} values come from setup.sh; {{ ... }} is Nomad's own address template.
+#
+# Servers 1-3 run with ROLE=server (server + client, a quorum that survives one failure);
+# node 4 with ROLE=client.
+
+datacenter = "iima"
+name       = "${NODE_NAME}"
+data_dir   = "/opt/nomad/data"
+bind_addr  = "0.0.0.0"
+
+advertise {
+  http = "${NODE_IP}"
+  rpc  = "${NODE_IP}"
+  serf = "${NODE_IP}"
+}
+
+server {
+  enabled          = ${IS_SERVER}
+  bootstrap_expect = 3
+
+  server_join {
+    retry_join = [${SERVER_JOIN}]
+  }
+}
+
+client {
+  enabled = true
+
+  server_join {
+    retry_join = [${SERVER_JOIN}]
+  }
+
+  # Apps listen on NOMAD_IP_http, this interface's (private) address; the firewall keeps app ports
+  # reachable from the cluster only.
+  network_interface = "${NET_IFACE}"
+
+  meta {
+    entry = "${IS_ENTRY}" # the node running Traefik
+  }
+}
+
+acl {
+  enabled = true
+}
+
+# raw_exec runs tasks unisolated, as the Nomad user; never on the cluster.
+plugin "raw_exec" {
+  config {
+    enabled = false
+  }
+}
+
+plugin "exec" {
+  config {
+    allow_caps = ["audit_write", "chown", "dac_override", "fowner", "fsetid", "kill", "mknod",
+    "net_bind_service", "setfcap", "setgid", "setpcap", "setuid", "sys_chroot"]
+  }
+}
+
+telemetry {
+  prometheus_metrics         = true
+  publish_allocation_metrics = true
+  publish_node_metrics       = true
+}

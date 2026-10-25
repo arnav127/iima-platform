@@ -66,14 +66,22 @@ func main() {
 		realApps[id] = dir
 		return nil
 	})
+	nomadMode := flag.Bool("nomad", false, "run core and apps as Nomad jobs, with Traefik reading routes from Nomad (the cluster's layout)")
 	flag.Parse()
-	if err := run(*googleOnly, realApps); err != nil {
+	if err := run(*googleOnly, *nomadMode, realApps); err != nil {
 		fmt.Fprintln(os.Stderr, "devstack:", err)
 		os.Exit(1)
 	}
 }
 
-func run(googleOnly bool, realApps map[string]string) error {
+// realApp is an app from the registry whose code lives in a sibling repo.
+type realApp struct {
+	app  *registry.App
+	repo string
+	bin  string
+}
+
+func run(googleOnly, nomadMode bool, realApps map[string]string) error {
 	root, err := repoRoot()
 	if err != nil {
 		return err
@@ -97,11 +105,6 @@ func run(googleOnly bool, realApps map[string]string) error {
 		return err
 	}
 	// Real apps come from the registry (apps/); their code from the sibling repo.
-	type realApp struct {
-		app  *registry.App
-		repo string
-		bin  string
-	}
 	var reals []realApp
 	for id, dir := range realApps {
 		a := reg.ByID(id)
@@ -140,7 +143,13 @@ func run(googleOnly bool, realApps map[string]string) error {
 	}
 
 	tdir := filepath.Join(dev, "traefik")
-	ports, err := prepareTraefik(root, tdir, routed)
+	if nomadMode {
+		return runNomad(nomadSetup{
+			root: root, dev: dev, bin: bin, tdir: tdir, dotenv: dotenv, googleOnly: googleOnly,
+			traefik: traefik, coreBin: coreBin, demoBin: demoBin, devApps: devApps.Apps(), reals: reals,
+		})
+	}
+	ports, err := prepareTraefik(root, tdir, "traefik.local.yml", routed)
 	if err != nil {
 		return err
 	}
@@ -278,11 +287,6 @@ func goBuild(moduleDir, out, pkg string) error {
 
 // ensureTraefik downloads the pinned Traefik release into bin once, checking its SHA-256.
 func ensureTraefik(bin string) (string, error) {
-	path := filepath.Join(bin, exe("traefik"))
-	marker := path + ".version"
-	if v, err := os.ReadFile(marker); err == nil && string(v) == traefikVersion {
-		return path, nil
-	}
 	platform := runtime.GOOS + "_" + runtime.GOARCH
 	want, ok := traefikSHA256[platform]
 	if !ok {
@@ -293,7 +297,22 @@ func ensureTraefik(bin string) (string, error) {
 		ext = ".zip"
 	}
 	url := fmt.Sprintf("https://github.com/traefik/traefik/releases/download/%s/traefik_%s_%s%s", traefikVersion, traefikVersion, platform, ext)
-	step("downloading Traefik " + traefikVersion)
+	return fetchPinned(bin, "traefik", traefikVersion, url, want)
+}
+
+// fetchPinned downloads a release archive (zip or tar.gz) once, checks its SHA-256 and extracts
+// the binary called name into bin.
+func fetchPinned(bin, name, version, url, want string) (string, error) {
+	path := filepath.Join(bin, exe(name))
+	marker := path + ".version"
+	if v, err := os.ReadFile(marker); err == nil && string(v) == version {
+		return path, nil
+	}
+	ext := ".tar.gz"
+	if strings.HasSuffix(url, ".zip") {
+		ext = ".zip"
+	}
+	step("downloading " + name + " " + version)
 	resp, err := http.Get(url)
 	if err != nil {
 		return "", err
@@ -308,7 +327,7 @@ func ensureTraefik(bin string) (string, error) {
 	}
 	sum := sha256.Sum256(archive)
 	if got := hex.EncodeToString(sum[:]); got != want {
-		return "", fmt.Errorf("Traefik download checksum mismatch: got %s, want %s", got, want)
+		return "", fmt.Errorf("%s download checksum mismatch: got %s, want %s", name, got, want)
 	}
 
 	var binary []byte
@@ -318,7 +337,7 @@ func ensureTraefik(bin string) (string, error) {
 			return "", err
 		}
 		for _, f := range zr.File {
-			if f.Name == exe("traefik") {
+			if f.Name == exe(name) || f.Name == name {
 				rc, err := f.Open()
 				if err != nil {
 					return "", err
@@ -344,7 +363,7 @@ func ensureTraefik(bin string) (string, error) {
 			if err != nil {
 				return "", err
 			}
-			if h.Name == "traefik" {
+			if h.Name == name {
 				if binary, err = io.ReadAll(tr); err != nil {
 					return "", err
 				}
@@ -352,17 +371,18 @@ func ensureTraefik(bin string) (string, error) {
 		}
 	}
 	if binary == nil {
-		return "", errors.New("traefik binary not found in the release archive")
+		return "", fmt.Errorf("%s binary not found in the release archive", name)
 	}
 	if err := os.WriteFile(path, binary, 0o755); err != nil {
 		return "", err
 	}
-	return path, os.WriteFile(marker, []byte(traefikVersion), 0o644)
+	return path, os.WriteFile(marker, []byte(version), 0o644)
 }
 
-// prepareTraefik lays out tdir: static config, platform middlewares, generated app routes and the
-// local plugin source. Returns the port given to each app.
-func prepareTraefik(root, tdir string, apps []*registry.App) (map[string]int, error) {
+// prepareTraefik lays out tdir: the static config (from deploy/traefik/<static>), platform
+// middlewares, generated app routes (none when apps is empty, e.g. in Nomad mode, where routes come
+// from job tags) and the local plugin source. Returns the port given to each app.
+func prepareTraefik(root, tdir, static string, apps []*registry.App) (map[string]int, error) {
 	dyn := filepath.Join(tdir, "dynamic")
 	plugin := filepath.Join(tdir, "plugins-local", "src", filepath.FromSlash(pluginModule))
 	for _, d := range []string{dyn, filepath.Join(tdir, "plugins-local")} {
@@ -373,7 +393,7 @@ func prepareTraefik(root, tdir string, apps []*registry.App) (map[string]int, er
 	if err := os.MkdirAll(dyn, 0o755); err != nil {
 		return nil, err
 	}
-	if err := copyFile(filepath.Join(root, "deploy", "traefik", "traefik.local.yml"), filepath.Join(tdir, "traefik.yml")); err != nil {
+	if err := copyFile(filepath.Join(root, "deploy", "traefik", static), filepath.Join(tdir, "traefik.yml")); err != nil {
 		return nil, err
 	}
 	if err := copyFile(filepath.Join(root, "deploy", "traefik", "dynamic", "platform.yml"), filepath.Join(dyn, "platform.yml")); err != nil {
@@ -381,6 +401,9 @@ func prepareTraefik(root, tdir string, apps []*registry.App) (map[string]int, er
 	}
 	if err := os.CopyFS(plugin, os.DirFS(filepath.Join(root, "deploy", "traefik", "plugins", "platformstrip"))); err != nil {
 		return nil, err
+	}
+	if len(apps) == 0 {
+		return nil, nil
 	}
 
 	ports := map[string]int{}

@@ -1,0 +1,5 @@
+# Settings shared by every app job on the campus cluster (read by core/cmd/jobgen).
+datacenter = "iima"
+driver     = "exec"                         # isolated; Linux only
+public_url = "https://students.iima.ac.in"
+# jwks_url defaults to public_url + /auth/.well-known/jwks.json

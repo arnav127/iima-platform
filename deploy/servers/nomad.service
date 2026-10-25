@@ -1,0 +1,21 @@
+[Unit]
+Description=Nomad agent
+Documentation=https://developer.hashicorp.com/nomad/docs
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+# Nomad runs as root: the exec driver needs it to isolate tasks (each task runs as nobody).
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStart=/usr/local/bin/nomad agent -config /etc/nomad.d
+KillMode=process
+KillSignal=SIGINT
+LimitNOFILE=65536
+LimitNPROC=infinity
+Restart=on-failure
+RestartSec=2
+TasksMax=infinity
+OOMScoreAdjust=-1000
+
+[Install]
+WantedBy=multi-user.target

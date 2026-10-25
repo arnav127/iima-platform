@@ -1,0 +1,22 @@
+# A dynamic host volume for one app's data (PocketBase's pb_data). Created once per app, before its
+# first deploy; Nomad makes the directory on the chosen node and the app's job is pinned there.
+#
+#   cp volume.hcl.example auxesiscapital-data.hcl   # edit name and node
+#   nomad volume create auxesiscapital-data.hcl
+#
+# The name must match `volume` in the app's app.toml. Backups of the directory go off the node
+# (PocketBase's own backups to S3, see BACKUP_* in iimakit/pb).
+name      = "auxesiscapital-data"
+type      = "host"
+plugin_id = "mkdir"
+
+capability {
+  access_mode     = "single-node-single-writer"
+  attachment_mode = "file-system"
+}
+
+# Which node holds the data. Spread apps across nodes by hand; move one with a backup and restore.
+constraint {
+  attribute = "${node.unique.name}"
+  value     = "iima-node-2"
+}

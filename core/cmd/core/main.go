@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -188,7 +189,11 @@ func run(log *slog.Logger) error {
 	})
 	go srv.Cleanup(ctx, 10*time.Minute)
 
+	// Under Nomad: the allocated address (joined properly, as it may be IPv6). Otherwise CORE_ADDR.
 	addr := env("CORE_ADDR", "127.0.0.1:4180")
+	if ip, port := os.Getenv("NOMAD_IP_http"), os.Getenv("NOMAD_PORT_http"); ip != "" && port != "" && os.Getenv("CORE_ADDR") == "" {
+		addr = net.JoinHostPort(ip, port)
+	}
 	hs := &http.Server{Addr: addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()

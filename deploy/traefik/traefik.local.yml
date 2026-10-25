@@ -1,9 +1,10 @@
 # Static config for the local stack. The dev stack copies this to .dev/traefik/traefik.yml and runs
-# Traefik from that folder, so the paths below are relative to it. The cluster config (Nomad
-# provider, TLS, HTTP/3) arrives in phase 4.
+# Traefik from that folder, so the paths below are relative to it. traefik.local-nomad.yml is the
+# same with Nomad in the loop; traefik.prod.yml is the cluster.
 entryPoints:
-  web:
+  public:
     address: "127.0.0.1:8080"
+    asDefault: true # routers without entryPoints attach here only
     http:
       # Drop headers like X_User_Token that CGI/WSGI-style backends would read as X-User-Token.
       aliasHeadersStrategy: delete
