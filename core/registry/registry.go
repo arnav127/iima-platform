@@ -62,6 +62,17 @@ var (
 // Strips reports whether the gateway removes the app's path before forwarding.
 func (a *App) Strips() bool { return a.StripPath == nil || *a.StripPath }
 
+// Chain is the gateway middleware chain (defined in deploy/traefik/dynamic/platform.yml) for this
+// app's routes under the given auth mode. Next.js apps get the "-next" variant, which leaves the
+// Content-Security-Policy header to the app: Next puts inline scripts in every page, so the app sets
+// a policy with a fresh nonce per request (@iima/kit/next's contentSecurityPolicy).
+func (a *App) Chain(auth string) string {
+	if a.Shape == "next" {
+		return "auth-" + auth + "-next"
+	}
+	return "auth-" + auth
+}
+
 // Registry is the set of known apps, keyed by their path.
 type Registry struct {
 	byPath map[string]*App // "/demo" -> app

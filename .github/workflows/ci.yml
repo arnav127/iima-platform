@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: [kit, kit/pb, core, dev, deploy/traefik/plugins/platformstrip, template/go-pocketbase/backend]
+        module: [kit, kit/pb, core, dev, pocketbase, deploy/traefik/plugins/platformstrip, template/go-pocketbase/backend]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -42,7 +42,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+      - run: npm ci
+      - run: npm run typecheck
       - run: npm test
+
+  kit-py:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kit-py
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install .
+      - run: python -m unittest discover -s tests
 
   template:
     runs-on: ubuntu-latest

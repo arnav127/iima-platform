@@ -1,7 +1,8 @@
 # Platform middlewares and core's routes. Shared by the local stack and (from phase 4) the cluster.
 # Traefik renders this file as a Go template; IIMA_CORE_URL is core's internal address.
 #
-# Apps attach exactly one of: auth-optional (the default), auth-required, auth-none.
+# Apps attach exactly one of: auth-optional (the default), auth-required, auth-none. Next.js apps get
+# the -next variants, which leave Content-Security-Policy to the app (registry App.Chain).
 http:
   middlewares:
     # Only the gateway sets identity: drop anything a browser sent.
@@ -41,6 +42,14 @@ http:
         referrerPolicy: strict-origin-when-cross-origin
         contentSecurityPolicy: "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self'"
 
+    # The same minus the CSP, for Next.js apps: Next puts inline scripts in every page, so the app sets
+    # the same policy with a per-request nonce (@iima/kit/next contentSecurityPolicy).
+    security-headers-next:
+      headers:
+        frameDeny: true
+        contentTypeNosniff: true
+        referrerPolicy: strict-origin-when-cross-origin
+
     compress:
       compress: {}
 
@@ -57,6 +66,15 @@ http:
     auth-none:
       chain:
         middlewares: [strip-identity, strip-session, security-headers, compress]
+    auth-optional-next:
+      chain:
+        middlewares: [strip-identity, verify-optional, strip-session, security-headers-next, compress]
+    auth-required-next:
+      chain:
+        middlewares: [strip-identity, verify-required, strip-session, security-headers-next, compress]
+    auth-none-next:
+      chain:
+        middlewares: [strip-identity, strip-session, security-headers-next, compress]
     # Core's own pages keep the session cookie: core is the one service allowed to read it.
     platform:
       chain:

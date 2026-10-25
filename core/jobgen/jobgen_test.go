@@ -51,10 +51,11 @@ func TestTags(t *testing.T) {
 		t.Fatalf("tags:\n%s", strings.Join(got, "\n"))
 	}
 
-	// Next.js keeps its path; auth-required apps get the required middleware.
+	// Next.js keeps its path and gets the -next chain (it sets its own CSP); auth-required apps get
+	// the required middleware.
 	next := Tags(app(t, "id=\"web\"\nname=\"W\"\npath=\"/web\"\nshape=\"next\"\nauth=\"required\""))
 	if slices.ContainsFunc(next, func(s string) bool { return strings.Contains(s, "strip") }) ||
-		!slices.Contains(next, "traefik.http.routers.web.middlewares=auth-required@file") {
+		!slices.Contains(next, "traefik.http.routers.web.middlewares=auth-required-next@file") {
 		t.Fatalf("next tags: %v", next)
 	}
 }

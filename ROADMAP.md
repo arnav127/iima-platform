@@ -68,10 +68,14 @@ are the steps that need the campus servers. Runbook: `docs/cluster.md`.
 - [ ] Before Garba moves: Microsoft login on the platform if exchange colleges use Microsoft 365 (Garba's "trust only the proven domain" rule is in its git history, `garba/service.go` `microsoftEmail`)
 
 ## Phase 6: Next.js and Python apps
-- [ ] `@iima/kit/next` (`getUser()` with `jose`); Python helper for FastAPI
-- [ ] Decide the standalone PocketBase approach (see ARCHITECTURE.md)
-- [ ] Port **BetaMarkets**; close the public `/betamarkets/pb` route
-- [ ] Port **Portfolio League** (confirm Supabase is gone first)
+- [x] `@iima/kit/next` (`getUser()`, `hasRole()`, `sameOrigin()` with `jose`) and the Python helper (`kit-py`, PyJWT) for FastAPI, both tested against tokens minted by core
+- [x] Standalone PocketBase sits behind the app server (ARCHITECTURE.md); the platform builds the pinned PocketBase for these apps (`pocketbase/`)
+- [x] Next.js apps set the gateway's CSP themselves with a per-request nonce (`-next` middleware chains, `contentSecurityPolicy()` in `@iima/kit/next`)
+- [x] devstack runs Next.js apps with their own PocketBase (`-app betamarkets=../predictionmarkets`, file mode)
+- [x] Port **BetaMarkets** on `platform-migration`: every route takes the person from the token (trades, comments, proposals, logbook, push), admin routes need the platform `admin` role, PocketBase rules superuser-only and its public route gone, polling instead of PocketBase realtime, secrets and VAPID keys out of the code, `platform-roles` script
+- [ ] Nomad job for Next.js + PocketBase apps (two tasks in one group, PocketBase on loopback) and its release artifact
+- [ ] Before BetaMarkets moves: new VAPID keys if the old private key was ever public (it was in the code), run its `platform-roles` output
+- [ ] Port **Portfolio League** (Supabase is gone from the code; only its README, `schema.sql` and old SQL migrations mention it)
 - [ ] Next.js app template
 
 ## Phase 7: shared services

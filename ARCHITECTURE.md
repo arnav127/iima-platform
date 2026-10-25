@@ -41,7 +41,7 @@ Rule of thumb used throughout:
 | `auxesiscapital` | `/auxesiscapital` | Go + PocketBase v0.40 as a framework, Preact/Vite SPA, PM2, port 8091 | PocketBase Google OAuth; investor/guest/admin list | Reference app. First to migrate. |
 | `beta-app` | check its `deploy/` | Same as Auxesis (Go + PB v0.40, Preact/Vite) | PB Google OAuth, @iima.ac.in only; roles member, writer, mentor, admin (`ADMIN_EMAILS`) | Content from files in `content/`, Yahoo index data cached 1 min |
 | `predictionmarkets` (BetaMarkets) | `/betamarkets` | Next.js 16 (`basePath: /betamarkets`, port 3010, 2 PM2 instances) + **standalone PocketBase binary** (port 8091, JS migrations in `pb_migrations`) | Browser talks to PocketBase directly (`NEXT_PUBLIC_POCKETBASE_URL`, exposed at `/betamarkets/pb`) | Web push. PB currently reachable from outside. |
-| `papertrading` (Portfolio League) | `/portfolioleague` | Next.js (`web/`, port 3000) + **FastAPI** (`backend/`, Python, port 8000) + **standalone PocketBase** (port 8090) + **Inngest (Python)** | Check: README still describes Supabase and Vercel, but the code has PocketBase (`pb_client.py`, `schema.sql`) | Price polling, order matching at close, dividends, splits, league rotation in `inngest_functions.py` |
+| `papertrading` (Portfolio League) | `/portfolioleague` | Next.js (`web/`, port 3000) + **FastAPI** (`backend/`, Python, port 8000) + **standalone PocketBase** (port 8090) + **Inngest (Python)** | On PocketBase (`pb_client.py`); Supabase is only left in its README and old SQL files | Price polling, order matching at close, dividends, splits, league rotation in `inngest_functions.py` |
 | `iima-garba` | `/garba2026` | Go + PB v0.40, Preact/Vite, port 8090 | PB Google + Microsoft OAuth; IIMA members, guests, exchange students | Needs external login. Rotating QR passes. |
 
 Port clashes today (8090 and 8091 are each used twice) disappear once Nomad assigns ports.
@@ -140,7 +140,6 @@ different servers (Postgres is also needed by self-hosted Inngest).
 - `aud` is the app id, so a token minted for one app is rejected by every other app.
 - `roles` holds **only this app's roles**.
 - `sid` lets apps notice a new sign-in (for example, Auxesis's sign-in log).
-- Exception for standalone PocketBase apps (below): they may also get an HS256 token signed with a per-app secret derived as `HMAC(master, app_id)`, because PocketBase JS hooks only verify HMAC tokens.
 
 ### Roles and attributes
 
@@ -226,15 +225,30 @@ Beta and Garba manage roles from their own People screens. `manager_role` in `ap
 ### Frontends under the gateway's CSP
 No inline scripts: the default policy runs scripts from files on this site only (Beta's theme snippet moved to `theme.js`). An app that needs more (a font CDN, an analytics host) gets a per-app policy when the first one asks.
 
+Next.js puts inline scripts in every page, so `shape = "next"` apps get the `-next` middleware chains, which
+leave `Content-Security-Policy` to the app. The app sets the same policy plus a fresh nonce on each page
+request in its `proxy.ts` (`contentSecurityPolicy()` from `@iima/kit/next`, tested against the gateway's), and
+its pages render per request. Review checks that a Next app has this proxy.
+
 ## Apps on a standalone PocketBase binary
 
-BetaMarkets and Portfolio League run PocketBase as a separate process, with no Go code to put middleware in,
-and their browsers call PocketBase directly. Options, to decide in their phase:
-1. **Hide PocketBase behind the app server.** The Next.js or FastAPI server verifies the token and calls PocketBase internally as a superuser or service account. PocketBase gets no public route. Cleanest security, but more code moves server-side.
-2. **pb_hooks bridge.** A shared `pb_hooks/sso.pb.js` reads an HS256 token signed with the app's derived secret and sets `e.auth`, so existing API rules keep working and the browser can keep talking to PocketBase through the gateway.
-3. **Move to Go + PocketBase as a framework**, if the app is being reworked anyway.
-
-Either way, the public `/betamarkets/pb` route and its dashboard must stop being reachable from outside.
+BetaMarkets and Portfolio League run PocketBase as a separate process, with no Go code to put middleware in.
+**Decided (phase 6): PocketBase sits behind the app server.**
+- PocketBase gets **no public route**. It listens on loopback only, inside the app's job; the browser never
+  talks to it, and its dashboard is reached only over an SSH tunnel.
+- The app server (Next.js route handlers and server components, or FastAPI) checks the platform token with
+  `@iima/kit/next` or `kit-py`, and finds or creates the person's `users` record by email.
+- To act **as the user**, the server asks PocketBase for a short-lived token for that record with the
+  superuser-only `impersonate` API, so the collections' API rules keep applying. Server code that already
+  runs as a superuser (BetaMarkets) takes the user's id from the verified token, never from the request.
+- The superuser's email and password come from the app's Nomad Variable; there are no defaults in code.
+- Realtime from PocketBase to the browser is gone with the public route: pages poll an app route instead
+  (an SSE route in the app server can come later if one needs it).
+- Roles come from the token (`admin` is a platform role), mirrored into the record's `role` field like the
+  Go apps do.
+- Ruled out: a pb_hooks bridge with HS256 tokens from core (a second token type and a shared secret to
+  guard), and rewriting both apps in Go (most of their code is Next.js and Python; a rewrite is far bigger
+  than the port).
 
 ## Data and files
 
@@ -329,5 +343,3 @@ like ours is allowed.
 - Off-box backups: where (another campus machine, an S3-compatible bucket, institute storage)?
 - Will IT give a second hostname for unreviewed apps?
 - Can the institute share a roll list for attributes, or do email patterns have to do?
-- Portfolio League: confirm it is fully on PocketBase now (README still describes Supabase and Vercel).
-- Choice for standalone PocketBase apps (hide behind the server, pb_hooks bridge, or move to Go).

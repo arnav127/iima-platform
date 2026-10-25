@@ -55,7 +55,9 @@ then open http://localhost:8080/admin.
 | `core/` | Sign-in, sessions, `/auth/verify`, JWKS, `/auth/me`, home page. Go, SQLite. |
 | `kit/` | `iimakit`: verifies `X-User-Token` in Go apps (`Middleware`, `User`, `RequireUser`, `RequireRole`), plus `Addr`, `Serve`, `SPA`, `Health`, dev user. |
 | `kit/pb/` | `iimakit/pb`: puts a Go + PocketBase app behind the platform (`pb.New`). Its own Go module. |
-| `kit-js/` | `@iima/kit` for frontends: `api`, `me`, `login`, `logout`, router, stores. (`/next` in phase 6.) |
+| `kit-js/` | `@iima/kit` for frontends: `api`, `me`, `login`, `logout`, router, stores. `@iima/kit/next`: `getUser()` for Next.js servers. |
+| `pocketbase/` | The platform's build of stock PocketBase (pinned version) for apps that run it next to a Next.js or Python server. |
+| `kit-py/` | `iimakit` for Python (FastAPI): `Verifier(app).user(request)`, `require_user`. |
 | `apps/` | One `app.toml` per app: the registry. |
 | `deploy/traefik/` | Gateway config and the `platformstrip` plugin. |
 | `deploy/nomad/` | Core job, cluster settings, agent config template, ACL policies, volume example. |
@@ -73,4 +75,4 @@ cd core && go vet ./... && go test ./...
 ```
 
 Same for `kit`, `kit/pb`, `dev` and `deploy/traefik/plugins/platformstrip`. For the JS kit:
-`cd kit-js && npm test`.
+`cd kit-js && npm ci && npm test`. For the Python kit: `cd kit-py && pip install . && python -m unittest discover -s tests`.

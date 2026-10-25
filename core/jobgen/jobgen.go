@@ -162,7 +162,7 @@ func Build(c Cluster, app *registry.App, rel Release) (*Job, error) {
 // and the path strip last (after forward auth has seen the full path).
 func Tags(app *registry.App) []string {
 	id := app.ID
-	mw := []string{"auth-" + app.Auth + "@file"}
+	mw := []string{app.Chain(app.Auth) + "@file"}
 	tags := []string{
 		"traefik.enable=true",
 		fmt.Sprintf("traefik.http.routers.%s.rule=%s", id, prefixRule(app.Path)),
@@ -176,7 +176,7 @@ func Tags(app *registry.App) []string {
 	tags = append(tags, fmt.Sprintf("traefik.http.routers.%s.middlewares=%s", id, strings.Join(mw, ",")))
 	for i, p := range app.Public {
 		r := fmt.Sprintf("%s-public-%d", id, i)
-		pmw := []string{"auth-none@file"}
+		pmw := []string{app.Chain("none") + "@file"}
 		if app.Strips() {
 			pmw = append(pmw, id+"-strip")
 		}

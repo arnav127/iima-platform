@@ -111,8 +111,11 @@ func run(googleOnly, nomadMode bool, realApps map[string]string) error {
 		if a == nil {
 			return fmt.Errorf("-app %s: not in the registry", id)
 		}
-		if a.Shape != "go-pocketbase" {
-			return fmt.Errorf("-app %s: devstack runs go-pocketbase apps only (this one is %s)", id, a.Shape)
+		if a.Shape != "go-pocketbase" && a.Shape != "next" {
+			return fmt.Errorf("-app %s: devstack runs go-pocketbase and next apps (this one is %s)", id, a.Shape)
+		}
+		if a.Shape == "next" && nomadMode {
+			return fmt.Errorf("-app %s: next apps run in file mode only for now (drop -nomad)", id)
 		}
 		repo, err := filepath.Abs(dir)
 		if err != nil {
@@ -134,12 +137,25 @@ func run(googleOnly, nomadMode bool, realApps map[string]string) error {
 		return err
 	}
 	routed := devApps.Apps()
+	pbBin := filepath.Join(bin, exe("pocketbase"))
+	builtPB := false
 	for _, r := range reals {
+		routed = append(routed, r.app)
+		if r.app.Shape == "next" {
+			// The app builds itself (npm run build); devstack only needs the platform's PocketBase.
+			if !builtPB {
+				step("building the platform's PocketBase")
+				if err := goBuild(filepath.Join(root, "pocketbase"), pbBin, "."); err != nil {
+					return err
+				}
+				builtPB = true
+			}
+			continue
+		}
 		step("building " + r.app.ID + " from " + r.repo)
 		if err := goBuild(filepath.Join(r.repo, "backend"), r.bin, "."); err != nil {
 			return err
 		}
-		routed = append(routed, r.app)
 	}
 
 	tdir := filepath.Join(dev, "traefik")
@@ -187,6 +203,13 @@ func run(googleOnly, nomadMode bool, realApps map[string]string) error {
 	}
 	for _, r := range reals {
 		data := filepath.Join(dev, "data", r.app.ID)
+		if r.app.Shape == "next" {
+			if err := startNext(ctx, &g, r, pbBin, data, ports[r.app.ID], coreAddr); err != nil {
+				g.stopAll()
+				return err
+			}
+			continue
+		}
 		args := []string{"serve", "--dir", data, "--publicDir", filepath.Join(r.repo, "backend", "pb_public")}
 		g.start(ctx, r.app.ID, r.bin, args, filepath.Join(r.repo, "backend"), map[string]string{
 			"PORT":          fmt.Sprint(ports[r.app.ID]),
@@ -422,11 +445,11 @@ func prepareTraefik(root, tdir, static string, apps []*registry.App) (map[string
 		if a.Strips() {
 			strip = ", app-" + a.ID + "-strip"
 		}
-		fmt.Fprintf(&b, "    app-%s:\n      rule: \"%s\"\n      priority: 2000\n      service: app-%s\n      middlewares: [auth-%s%s]\n",
-			a.ID, prefixRule(a.Path), a.ID, a.Auth, strip)
+		fmt.Fprintf(&b, "    app-%s:\n      rule: \"%s\"\n      priority: 2000\n      service: app-%s\n      middlewares: [%s%s]\n",
+			a.ID, prefixRule(a.Path), a.ID, a.Chain(a.Auth), strip)
 		for j, p := range a.Public {
-			fmt.Fprintf(&b, "    app-%s-public-%d:\n      rule: \"%s\"\n      priority: 3000\n      service: app-%s\n      middlewares: [auth-none%s]\n",
-				a.ID, j, prefixRule(a.Path+p), a.ID, strip)
+			fmt.Fprintf(&b, "    app-%s-public-%d:\n      rule: \"%s\"\n      priority: 3000\n      service: app-%s\n      middlewares: [%s%s]\n",
+				a.ID, j, prefixRule(a.Path+p), a.ID, a.Chain("none"), strip)
 		}
 	}
 	b.WriteString("  middlewares:\n")
