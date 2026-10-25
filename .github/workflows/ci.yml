@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: [kit, kit/pb, core, dev, deploy/traefik/plugins/platformstrip]
+        module: [kit, kit/pb, core, dev, deploy/traefik/plugins/platformstrip, template/go-pocketbase/backend]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -43,3 +43,17 @@ jobs:
         with:
           node-version: "24"
       - run: npm test
+
+  template:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: template/go-pocketbase
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci
+      - run: npm run typecheck
+      - run: VITE_BASE=/myapp/ npm run build

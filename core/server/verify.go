@@ -3,7 +3,9 @@ package server
 import (
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/arnav127/iima-platform/core/store"
 	iimakit "github.com/arnav127/iima-platform/kit"
 )
 
@@ -77,6 +79,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"signedIn": false})
 		return
 	}
+	s.renewSession(w, r, sess)
 	u := sess.User
 	a, err := s.attributes(r.Context(), u)
 	if err != nil {
@@ -103,6 +106,25 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// renewSession slides the session forward once it is past half its life, so people who use an app
+// now and then (an installed phone app checking /auth/me daily) are not asked to sign in every month.
+// /auth/verify does not do this: its response headers never reach the browser.
+func (s *Server) renewSession(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	if time.Until(sess.ExpiresAt) > s.cfg.SessionTTL/2 {
+		return
+	}
+	ck, err := r.Cookie(sessionCookie)
+	if err != nil {
+		return
+	}
+	if err := s.cfg.Store.ExtendSession(r.Context(), ck.Value, s.cfg.SessionTTL); err != nil {
+		s.cfg.Log.Error("extend session", "err", err)
+		return
+	}
+	s.cache.drop(ck.Value)
+	s.setCookie(w, sessionCookie, ck.Value, "/", s.cfg.SessionTTL)
 }
 
 func (s *Server) handleJWKS(w http.ResponseWriter, r *http.Request) {

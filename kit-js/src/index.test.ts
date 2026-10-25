@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ApiError, api, asset, createStore, loginURL, setBase } from './index.ts';
+import { ApiError, api, asset, createStore, loginURL, setBase, setRoles } from './index.ts';
 
 test('asset and loginURL use the base path', () => {
   setBase('/auxesiscapital/');
@@ -28,6 +28,21 @@ test('api sends JSON under the base and surfaces server messages', async () => {
 
   globalThis.fetch = (async () => { throw new TypeError('network'); }) as typeof fetch;
   await assert.rejects(api('/x'), (e: unknown) => e instanceof ApiError && e.status === 0);
+});
+
+test('setRoles puts the roles on the platform and surfaces refusals', async () => {
+  const calls: { url: string; init: RequestInit }[] = [];
+  globalThis.fetch = (async (url: string, init: RequestInit) => {
+    calls.push({ url, init });
+    if (url.includes('nope')) return new Response(JSON.stringify({ error: 'not allowed for this app' }), { status: 403 });
+    return new Response(JSON.stringify({ email: 'a@iima.ac.in', roles: ['mentor'] }), { status: 200 });
+  }) as typeof fetch;
+
+  await setRoles('beta', 'A@iima.ac.in', ['mentor']);
+  assert.equal(calls[0].url, '/auth/api/apps/beta/roles/A%40iima.ac.in');
+  assert.equal(calls[0].init.method, 'PUT');
+  assert.equal(calls[0].init.body, '{"roles":["mentor"]}');
+  await assert.rejects(setRoles('nope', 'a@iima.ac.in', []), (e: unknown) => e instanceof ApiError && e.status === 403 && e.message === 'not allowed for this app');
 });
 
 test('createStore notifies subscribers until they unsubscribe', () => {

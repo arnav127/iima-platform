@@ -1,0 +1,4 @@
+node_modules/
+backend/pb_public/
+backend/pb_data/
+.env

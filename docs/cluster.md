@@ -95,6 +95,21 @@ admins given the `admin` role in `/admin/apps/auxesiscapital` (they replace `ADM
 Nomad job, copy the data folder back if anything was written since, `pm2 start auxesiscapital`, and
 restore the old Apache lines. Keep the PM2 setup until the next term.
 
+## Moving Beta and Garba
+
+The same steps as Auxesis, plus their roles. Before switching, on the server where the app runs
+today, print the platform commands for its current writers, mentors, volunteers and admins, and run
+them where core runs:
+
+```
+./beta-server platform-roles --dir <beta data dir>     # core roles set beta <email> <role>
+./garba platform-roles --dir <garba data dir>          # core roles set garba2026 <email> <role>
+```
+
+Then appoint the apps' app admins (or rely on `manager_role = "admin"`: their admins can already
+manage roles from the apps' own People screens). Garba: check that exchange colleges can sign in
+with Google before the event; Microsoft login is not on the platform yet.
+
 ## Backups on the cluster
 
 - Nomad state: `nomad-snapshot.timer` saves `/srv/iima/backups/nomad-*.snap` daily on each server.

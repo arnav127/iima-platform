@@ -94,6 +94,29 @@ export async function me(appID?: string): Promise<PlatformUser> {
   return res.json();
 }
 
+/**
+ * Sets someone's roles in an app on the platform (all of them: an empty list removes every role).
+ * For an app's own People screen: the signed-in user must be a platform app admin of the app, or
+ * hold its manager_role. Takes effect on that person's next request.
+ */
+export async function setRoles(appID: string, email: string, roles: string[]): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`/auth/api/apps/${encodeURIComponent(appID)}/roles/${encodeURIComponent(email)}`, {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ roles }),
+    });
+  } catch {
+    throw new ApiError(0, "You're offline. Check your connection and try again.");
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    throw new ApiError(res.status, data?.error || 'Could not change roles');
+  }
+}
+
 /** The platform sign-in link that returns to `next` (an app route like '/portfolio'). */
 export const loginURL = (next = '/', switchAccount = false) =>
   '/auth/login?rd=' + encodeURIComponent(BASE + next) + (switchAccount ? '&switch=1' : '');

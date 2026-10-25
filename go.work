@@ -2,6 +2,7 @@ go 1.27.0
 
 use (
 	./kit/pb
+	./template/go-pocketbase/backend
 	./core
 	./deploy/traefik/plugins/platformstrip
 	./dev

@@ -1,0 +1,22 @@
+{
+  "name": "myapp",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config web/vite.config.ts",
+    "build": "vite build --config web/vite.config.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "backend": "cd backend && go run . serve",
+    "backend:test": "cd backend && go test ./..."
+  },
+  "dependencies": {
+    "@iima/kit": "file:../../kit-js",
+    "preact": "^10.29.8"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"
+  }
+}

@@ -230,3 +230,41 @@ func TestAdminPages(t *testing.T) {
 		t.Fatalf("cross-origin form: %d", resp.StatusCode)
 	}
 }
+
+func TestManagerRole(t *testing.T) {
+	e, _, owner, user := adminEnv(t)
+	// The app admin makes the user a demo "admin", demo's manager_role.
+	if code, _ := e.api(owner, "PUT", "/auth/api/apps/demo/roles/p25aarav@iima.ac.in", map[string]any{"roles": []string{"admin"}}, nil); code != 200 {
+		t.Fatal("grant manager role")
+	}
+	writer := e.browser()
+	e.devSignIn(writer, "p25writer@iima.ac.in", "/")
+	e.api(owner, "PUT", "/auth/api/apps/demo/roles/p25writer@iima.ac.in", map[string]any{"roles": []string{"writer"}}, nil)
+
+	for _, c := range []struct {
+		name   string
+		c      *http.Client
+		method string
+		path   string
+		body   any
+		want   int
+	}{
+		{"manager grants a role in their app", user, "PUT", "/auth/api/apps/demo/roles/p25new@iima.ac.in", map[string]any{"roles": []string{"writer"}}, 200},
+		{"manager lists their app", user, "GET", "/auth/api/apps/demo/roles", nil, 200},
+		{"manager cannot touch another app", user, "GET", "/auth/api/apps/demo-external/roles", nil, 403},
+		{"manager cannot appoint app admins", user, "PUT", "/auth/api/apps/demo/admins/x@iima.ac.in", nil, 403},
+		{"a non-manager role grants nothing", writer, "GET", "/auth/api/apps/demo/roles", nil, 403},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if code, body := e.api(c.c, c.method, c.path, c.body, nil); code != c.want {
+				t.Fatalf("got %d (%v), want %d", code, body, c.want)
+			}
+		})
+	}
+
+	// Losing the manager role takes the rights away at once.
+	e.api(owner, "PUT", "/auth/api/apps/demo/roles/p25aarav@iima.ac.in", map[string]any{"roles": []string{}}, nil)
+	if code, _ := e.api(user, "GET", "/auth/api/apps/demo/roles", nil, nil); code != 403 {
+		t.Fatalf("ex-manager: %d", code)
+	}
+}

@@ -36,6 +36,9 @@ type App struct {
 	// "/" (and reads its public prefix from X-Forwarded-Prefix). Defaults to true, except for
 	// Next.js apps, which expect the full path because of their basePath.
 	StripPath *bool `toml:"strip_path"`
+	// ManagerRole is one of Roles whose holders may also manage this app's roles on the platform,
+	// like app admins. It lets an app's own People screen keep working (Beta's and Garba's admins).
+	ManagerRole string `toml:"manager_role"`
 
 	File string `toml:"-"` // where it was loaded from, for error messages
 }
@@ -134,6 +137,8 @@ func (a *App) validate() error {
 		return fmt.Errorf("auth %q: must be %q or %q", a.Auth, AuthOptional, AuthRequired)
 	case !slices.Contains(shapes, a.Shape):
 		return fmt.Errorf("shape %q: must be one of %s", a.Shape, strings.Join(shapes, ", "))
+	case a.ManagerRole != "" && !slices.Contains(a.Roles, a.ManagerRole):
+		return fmt.Errorf("manager_role %q must be one of the declared roles", a.ManagerRole)
 	}
 	for _, p := range a.Public {
 		if !strings.HasPrefix(p, "/") || path.Clean(p) != p {

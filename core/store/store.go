@@ -205,6 +205,13 @@ func (s *Store) Session(ctx context.Context, token string) (*Session, error) {
 	return &sess, nil
 }
 
+// ExtendSession moves an unexpired session's expiry to now + ttl.
+func (s *Store) ExtendSession(ctx context.Context, token string, ttl time.Duration) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET expires_at = ? WHERE token_hash = ? AND expires_at > ?`,
+		time.Now().Add(ttl).Unix(), hashToken(token), time.Now().Unix())
+	return err
+}
+
 // DeleteSession signs a browser out. Deleting a session that does not exist is not an error.
 func (s *Store) DeleteSession(ctx context.Context, token string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ?`, hashToken(token))

@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -27,13 +28,14 @@ shape = "go"`)
 	}
 
 	bad := map[string]string{
-		"reserved path":  `id="x1" name="X" path="/auth" shape="go"`,
-		"nested path":    `id="x1" name="X" path="/a/b" shape="go"`,
-		"bad login":      `id="x1" name="X" path="/x" shape="go" login="microsoft"`,
-		"bad auth":       `id="x1" name="X" path="/x" shape="go" auth="none"`,
-		"typo in field":  `id="x1" name="X" path="/x" shape="go" logn="external"`,
-		"bad id":         `id="X" name="X" path="/x" shape="go"`,
-		"unclean public": `id="x1" name="X" path="/x" shape="go" public=["/api/../admin"]`,
+		"reserved path":           `id="x1" name="X" path="/auth" shape="go"`,
+		"nested path":             `id="x1" name="X" path="/a/b" shape="go"`,
+		"bad login":               `id="x1" name="X" path="/x" shape="go" login="microsoft"`,
+		"bad auth":                `id="x1" name="X" path="/x" shape="go" auth="none"`,
+		"typo in field":           `id="x1" name="X" path="/x" shape="go" logn="external"`,
+		"bad id":                  `id="X" name="X" path="/x" shape="go"`,
+		"undeclared manager_role": `id="x1" name="X" path="/x" shape="go" roles=["a"] manager_role="b"`,
+		"unclean public":          `id="x1" name="X" path="/x" shape="go" public=["/api/../admin"]`,
 	}
 	for name, src := range bad {
 		t.Run(name, func(t *testing.T) {
@@ -89,6 +91,16 @@ func TestLookup(t *testing.T) {
 func TestLoadRepoRegistry(t *testing.T) {
 	// The checked-in manifests must always load together.
 	if _, err := LoadDirs("../../apps", "../../dev/apps"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTemplateManifest(t *testing.T) {
+	b, err := os.ReadFile("../../template/go-pocketbase/app.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse(b); err != nil {
 		t.Fatal(err)
 	}
 }

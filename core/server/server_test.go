@@ -56,7 +56,7 @@ func newEnv(t *testing.T, devLogin bool) *env {
 		t.Fatal(err)
 	}
 	reg, err := registry.New(
-		&registry.App{ID: "demo", Name: "Demo", Path: "/demo", Shape: "go", Login: "iima", Auth: "optional", Roles: []string{"admin", "writer"}},
+		&registry.App{ID: "demo", Name: "Demo", Path: "/demo", Shape: "go", Login: "iima", Auth: "optional", Roles: []string{"admin", "writer"}, ManagerRole: "admin"},
 		&registry.App{ID: "demo-external", Name: "Demo ext", Path: "/demo-external", Shape: "go", Login: "external", Auth: "optional"},
 	)
 	if err != nil {
@@ -379,5 +379,29 @@ func TestLogout(t *testing.T) {
 	c.Jar.SetCookies(jarURL, []*http.Cookie{{Name: sessionCookie, Value: old, Path: "/"}})
 	if e.verify(c, "optional", "/demo/", nil).Header.Get("X-User-Token") != "" {
 		t.Fatal("token after logout")
+	}
+}
+
+func TestSessionSlides(t *testing.T) {
+	e := newEnv(t, true)
+	e.cfg.SessionTTL = 4 * time.Second // stored in whole seconds
+	e.srv.Config.Handler = New(e.cfg).Handler()
+	c := e.browser()
+	e.devSignIn(c, "p25a@iima.ac.in", "/")
+
+	// Early on, /auth/me leaves the session alone.
+	if resp := e.do(c, "GET", "/auth/me", nil, nil); len(resp.Cookies()) != 0 {
+		t.Fatal("session renewed while fresh")
+	}
+	// Past half its life, /auth/me extends it and re-sends the cookie.
+	time.Sleep(2600 * time.Millisecond)
+	resp := e.do(c, "GET", "/auth/me", nil, nil)
+	if len(resp.Cookies()) != 1 || resp.Cookies()[0].Name != sessionCookie {
+		t.Fatal("session not renewed")
+	}
+	// Still signed in after the original 4 s.
+	time.Sleep(2600 * time.Millisecond)
+	if e.verify(c, "optional", "/demo/", nil).Header.Get("X-User-Token") == "" {
+		t.Fatal("renewed session expired at the old time")
 	}
 }

@@ -107,7 +107,7 @@ different servers (Postgres is also needed by self-hosted Inngest).
 - **Google OIDC.** For IIMA-only apps, send `hd=iima.ac.in` (so Google shows only IIMA accounts) and **check the `hd` claim in the ID token server-side**. The URL parameter is only a hint.
 - **External login is opt-in per app** (`login = "external"` in its manifest). The login page then also accepts any Google account (no `hd` hint, no `hd` check).
 - **Microsoft login is left out for now.** When it is added, follow Garba's tenant rule: `organizations` or one named tenant, never `common` or `consumers`. Until then, exchange students sign in to external apps with a Google account.
-- **One session for everyone**, in an HttpOnly, Secure, `SameSite=Lax` cookie on path `/`. Sessions are stored server-side so logout and revocation work instantly.
+- **One session for everyone**, in an HttpOnly, Secure, `SameSite=Lax` cookie on path `/`. Sessions are stored server-side so logout and revocation work instantly. They last 30 days and **slide**: `/auth/me` extends one that is past half its life, so people who open an app now and then (Beta's installed app checks daily) stay signed in.
 - **Tokens are only issued to apps whose policy the user fits.** A Gmail user visiting an IIMA-only app looks signed out there and sees "This app needs your @iima.ac.in account" with a **Switch account** button (`prompt=select_account`).
 - Login links: `/auth/login?rd=/auxesiscapital/portfolio`. `rd` must be a same-origin path.
 
@@ -179,6 +179,7 @@ realtime = true                     # long-timeout route for /api/realtime
 volume  = "auxesiscapital-data"     # host volume for pb_data
 memory  = 256                       # MB
 strip_path = true                   # default: true, except shape = "next"
+manager_role = "admin"              # optional: holders of this role also manage the app's roles
 ```
 
 **Path stripping.** The gateway removes the app's path before forwarding (as Apache does today), so
@@ -216,8 +217,14 @@ Everything Auxesis and Garba each wrote by hand:
 ### Python
 A small helper (PyJWT with the JWKS) for FastAPI: `user = iima_user(request)`. Only Portfolio League needs it today.
 
-### App template (later)
-`iima-app-template`, lifted from Auxesis: Vite + Preact frontend, `iimakit/pb` backend, `app.toml`, CI workflow. A second template for Next.js. Two supported paths, no more.
+### App template
+`template/go-pocketbase` in this repo (built and type-checked by CI, so it never rots), lifted from Auxesis: Vite + Preact frontend, `iimakit/pb` backend, `app.toml`. A new app copies the folder. A second template for Next.js (phase 6). Two supported paths, no more.
+
+### Apps' own role screens
+Beta and Garba manage roles from their own People screens. `manager_role` in `app.toml` lets the holders of that app role manage the app's roles on the platform (like app admins, for that app only). The screen calls `@iima/kit`'s `setRoles` (the platform API, with the person's own session), then saves the app's copy as before; the app's `role` field is a mirror that `Access` overwrites from the token on every request.
+
+### Frontends under the gateway's CSP
+No inline scripts: the default policy runs scripts from files on this site only (Beta's theme snippet moved to `theme.js`). An app that needs more (a font CDN, an analytics host) gets a per-app policy when the first one asks.
 
 ## Apps on a standalone PocketBase binary
 

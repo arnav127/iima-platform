@@ -61,6 +61,7 @@ then open http://localhost:8080/admin.
 | `deploy/nomad/` | Core job, cluster settings, agent config template, ACL policies, volume example. |
 | `deploy/servers/` | `setup.sh` for each campus server, systemd units, firewall, snapshot timer. |
 | `dev/` | The dev stack command, the stub app and its manifests. |
+| `template/go-pocketbase/` | Starting point for a new Go + PocketBase app (copy the folder). |
 | `docs/` | Maintainer handbook. |
 
 ## Checks

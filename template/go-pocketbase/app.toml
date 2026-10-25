@@ -1,0 +1,14 @@
+# This app's entry in the platform registry. Copy it to apps/<id>.toml in iima-platform with a
+# pull request; core and the deploy tools read it from there. See ARCHITECTURE.md for every field.
+id       = "myapp"                     # also the token's aud and the Nomad job name
+name     = "My App"
+path     = "/myapp"
+owners   = ["you@iima.ac.in"]          # who gets alerts; reviewed every term
+review   = "2027-03-31"
+shape    = "go-pocketbase"
+login    = "iima"                      # or "external" to let other Google accounts in
+auth     = "optional"
+roles    = ["admin"]                   # granted in /admin on the platform
+public   = ["/api/health"]
+volume   = "myapp-data"
+memory   = 256

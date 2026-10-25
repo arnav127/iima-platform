@@ -42,6 +42,19 @@ func (s *Server) actorFor(ctx context.Context, sess *store.Session) (*actor, err
 	for _, id := range ids {
 		a.Apps[id] = true
 	}
+	// Holders of an app's manager_role manage it too.
+	for _, app := range s.cfg.Registry.Apps() {
+		if app.ManagerRole == "" || a.Apps[app.ID] {
+			continue
+		}
+		roles, err := s.roles(ctx, app.ID, a.Email)
+		if err != nil {
+			return nil, err
+		}
+		if slices.Contains(roles, app.ManagerRole) {
+			a.Apps[app.ID] = true
+		}
+	}
 	return a, nil
 }
 

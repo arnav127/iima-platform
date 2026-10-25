@@ -58,9 +58,14 @@ are the steps that need the campus servers. Runbook: `docs/cluster.md`.
 - [ ] Cut over `/auxesiscapital` from Apache to Traefik; keep a rollback path
 
 ## Phase 5: the other Go + PocketBase apps
-- [ ] Port **beta-app** (roles member, writer, mentor, admin become platform roles)
-- [ ] Port **Garba** (external login with any Google account; Microsoft login added only if exchange students need it; cohorts move to attributes; volunteers become roles; guest limits stay in the app)
-- [ ] Extract the app template from Auxesis
+- [x] `manager_role` in `app.toml`: holders of that role manage the app's roles too, so apps' own People screens keep working (they call the platform first, then save their copy)
+- [x] Sessions slide: `/auth/me` extends a session past half its life, so installed apps (Beta) don't ask people to sign in monthly
+- [x] Port **beta-app** on `platform-migration`: writer, mentor and admin are platform roles (`manager_role = "admin"`); its dev login, `ADMIN_EMAILS` and its image cookie are gone; analytics owners are its admins (or `ANALYTICS_EMAILS`); realtime and uploads ride on the platform cookie
+- [x] Port **Garba** on `platform-migration`: external login with any Google account; cohorts from attributes (first-year PGP and FABM are PGP1); volunteer and admin are platform roles (`manager_role = "admin"`); guest limits, overrides and pass lists stay in the app; its Microsoft sign-in is gone
+- [x] `platform-roles` command in Beta and Garba prints the `core roles set` lines for today's roles, for the cut-over
+- [x] App template (`template/go-pocketbase`), lifted from Auxesis, built and type-checked in CI
+- [ ] Check Beta's service worker and web push in real Chrome (the embedded browser used for testing doesn't run service workers)
+- [ ] Before Garba moves: Microsoft login on the platform if exchange colleges use Microsoft 365 (Garba's "trust only the proven domain" rule is in its git history, `garba/service.go` `microsoftEmail`)
 
 ## Phase 6: Next.js and Python apps
 - [ ] `@iima/kit/next` (`getUser()` with `jose`); Python helper for FastAPI
