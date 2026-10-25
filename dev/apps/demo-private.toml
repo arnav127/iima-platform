@@ -1,0 +1,9 @@
+# Same stub as demo, on auth-required: the gateway sends signed-out browsers to the login page.
+id     = "demo-private"
+name   = "Demo (private)"
+path   = "/demo-private"
+owners = ["arnavdixit127@gmail.com"]
+shape  = "go"
+login  = "iima"
+auth   = "required"
+public = ["/health"]

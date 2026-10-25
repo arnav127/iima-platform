@@ -1,0 +1,13 @@
+id       = "garba2026"
+name     = "Garba 2026"
+path     = "/garba2026"
+owners   = ["arnavdixit127@gmail.com"]
+review   = "2027-03-31"
+shape    = "go-pocketbase"
+login    = "external"           # guests and exchange students sign in with any Google account
+auth     = "optional"
+roles    = ["admin", "volunteer"]
+public   = ["/api/health"]
+realtime = true
+volume   = "garba2026-data"
+memory   = 256

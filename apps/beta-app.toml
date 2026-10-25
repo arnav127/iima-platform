@@ -1,0 +1,13 @@
+id       = "beta"
+name     = "Beta"
+path     = "/beta"
+owners   = ["arnavdixit127@gmail.com"]
+review   = "2027-03-31"
+shape    = "go-pocketbase"
+login    = "iima"
+auth     = "optional"
+roles    = ["member", "writer", "mentor", "admin"]
+public   = ["/api/health"]
+realtime = true
+volume   = "beta-data"
+memory   = 256

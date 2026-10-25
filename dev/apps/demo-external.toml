@@ -1,0 +1,9 @@
+# Same stub as demo, but open to any Google account.
+id     = "demo-external"
+name   = "Demo (external)"
+path   = "/demo-external"
+owners = ["arnavdixit127@gmail.com"]
+shape  = "go"
+login  = "external"
+auth   = "optional"
+public = ["/health"]

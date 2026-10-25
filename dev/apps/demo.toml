@@ -1,0 +1,10 @@
+# Stub app for the local stack. Only loaded by `go run ./dev/cmd/devstack`.
+id     = "demo"
+name   = "Demo (IIMA only)"
+path   = "/demo"
+owners = ["arnavdixit127@gmail.com"]
+shape  = "go"
+login  = "iima"
+auth   = "optional"
+roles  = ["admin"]
+public = ["/health"]

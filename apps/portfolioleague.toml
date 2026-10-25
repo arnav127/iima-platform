@@ -1,0 +1,11 @@
+id       = "portfolioleague"
+name     = "Portfolio League"
+path     = "/portfolioleague"
+owners   = ["arnavdixit127@gmail.com"]
+review   = "2027-03-31"
+shape    = "next"               # plus FastAPI, a standalone PocketBase and Inngest; see phase 6
+login    = "iima"
+auth     = "optional"
+roles    = ["admin"]
+volume   = "portfolioleague-data"
+memory   = 512

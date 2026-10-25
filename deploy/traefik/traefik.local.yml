@@ -1,0 +1,31 @@
+# Static config for the local stack. The dev stack copies this to .dev/traefik/traefik.yml and runs
+# Traefik from that folder, so the paths below are relative to it. The cluster config (Nomad
+# provider, TLS, HTTP/3) arrives in phase 4.
+entryPoints:
+  web:
+    address: "127.0.0.1:8080"
+    http:
+      # Drop headers like X_User_Token that CGI/WSGI-style backends would read as X-User-Token.
+      aliasHeadersStrategy: delete
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+providers:
+  file:
+    directory: dynamic
+    watch: true
+
+experimental:
+  localPlugins:
+    platformstrip:
+      moduleName: github.com/arnav127/iima-platform/deploy/traefik/plugins/platformstrip
+
+log:
+  level: INFO
+
+accessLog:
+  fields:
+    headers:
+      defaultMode: drop # never log cookies or tokens

@@ -1,0 +1,11 @@
+displayName: Platform strip
+type: middleware
+import: github.com/arnav127/iima-platform/deploy/traefik/plugins/platformstrip
+summary: Removes request headers (by name or prefix) and named cookies before a request reaches an app.
+testData:
+  headerPrefixes:
+    - X-User-
+  headers:
+    - Authorization
+  cookies:
+    - iima_session

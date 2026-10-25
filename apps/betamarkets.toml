@@ -1,0 +1,11 @@
+id       = "betamarkets"
+name     = "BetaMarkets"
+path     = "/betamarkets"
+owners   = ["arnavdixit127@gmail.com"]
+review   = "2027-03-31"
+shape    = "next"               # plus a standalone PocketBase; approach decided in phase 6
+login    = "iima"
+auth     = "optional"
+roles    = ["admin"]
+volume   = "betamarkets-data"
+memory   = 512

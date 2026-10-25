@@ -1,0 +1,310 @@
+# IIMA student apps platform: architecture
+
+How student and club apps at `students.iima.ac.in` share one gateway, one login and one set of
+platform services, while each app stays independent. This records what was decided and why, and what was
+deliberately left out.
+
+## Goals and constraints
+
+- **One login for every app.** Google with an @iima.ac.in account by default. A few apps also let outsiders in.
+- **Subpaths only** (`students.iima.ac.in/<app>`). Subdomains are not available.
+- **3 to 4 servers.** Apps today are started by hand (PM2), with a manual Apache block per subpath.
+- **New apps keep arriving**, written by students and clubs. The platform should handle 50 to 60 apps.
+- **Maintainers change every year.** Every moving part has to be simple enough to hand over.
+- App authors should **never SSH into a server** to deploy.
+
+## The shape in one picture
+
+```
+browser ──HTTPS (HTTP/2, HTTP/3)──▶ Traefik (gateway)
+                                       │ 1. forward auth: "who is this?"
+                                       ├──────────────▶ core  /auth/verify  (session cookie → signed JWT)
+                                       │ 2. request + X-User-Token, minus cookie and spoofed headers
+                                       ▼
+                         app (any server, any port, picked by Nomad)
+                                       │ verifies JWT locally with the public key
+                                       ├── its own PocketBase / data folder
+                                       └── iimakit.Call("marketdata", "GET /v1/prices") ─▶ other services
+
+Nomad: runs every app and service, restarts them, holds the service catalogue Traefik reads.
+```
+
+Rule of thumb used throughout:
+- Same **code** in many apps → a **library** (`iimakit`, `@iima/kit`, the app template).
+- Same **data** needed by many apps → a **service** (identity and roles, market data, analytics).
+- Everything else stays **inside the app** (a modular monolith).
+
+## Existing apps (in `C:\sandbox`)
+
+| App | Path | Stack today | Login today | Notes |
+| --- | --- | --- | --- | --- |
+| `auxesiscapital` | `/auxesiscapital` | Go + PocketBase v0.40 as a framework, Preact/Vite SPA, PM2, port 8091 | PocketBase Google OAuth; investor/guest/admin list | Reference app. First to migrate. |
+| `beta-app` | check its `deploy/` | Same as Auxesis (Go + PB v0.40, Preact/Vite) | PB Google OAuth, @iima.ac.in only; roles member, writer, mentor, admin (`ADMIN_EMAILS`) | Content from files in `content/`, Yahoo index data cached 1 min |
+| `predictionmarkets` (BetaMarkets) | `/betamarkets` | Next.js 16 (`basePath: /betamarkets`, port 3010, 2 PM2 instances) + **standalone PocketBase binary** (port 8091, JS migrations in `pb_migrations`) | Browser talks to PocketBase directly (`NEXT_PUBLIC_POCKETBASE_URL`, exposed at `/betamarkets/pb`) | Web push. PB currently reachable from outside. |
+| `papertrading` (Portfolio League) | `/portfolioleague` | Next.js (`web/`, port 3000) + **FastAPI** (`backend/`, Python, port 8000) + **standalone PocketBase** (port 8090) + **Inngest (Python)** | Check: README still describes Supabase and Vercel, but the code has PocketBase (`pb_client.py`, `schema.sql`) | Price polling, order matching at close, dividends, splits, league rotation in `inngest_functions.py` |
+| `iima-garba` | `/garba2026` | Go + PB v0.40, Preact/Vite, port 8090 | PB Google + Microsoft OAuth; IIMA members, guests, exchange students | Needs external login. Rotating QR passes. |
+
+Port clashes today (8090 and 8091 are each used twice) disappear once Nomad assigns ports.
+
+So the platform must support **four app shapes**, not one:
+1. Go + PocketBase as a framework (Auxesis, beta-app, Garba). The default for new apps.
+2. Next.js (BetaMarkets frontend, Portfolio League frontend).
+3. Python API (Portfolio League backend).
+4. A standalone PocketBase binary with no Go code (BetaMarkets, Portfolio League).
+
+## Gateway: Traefik
+
+- Single front door for `students.iima.ac.in`, reading routes from **Nomad's service catalogue** (Traefik's Nomad provider). No hand-edited proxy config per app.
+- Serves **HTTP/2 and HTTP/3 to browsers**. This matters on one origin: HTTP/1.1 allows only 6 connections per origin, and a few tabs of realtime (SSE) apps can use them all up.
+- Internal hops stay HTTP/1.1 with keep-alive pools. h2c can be turned on later if metrics ever show a need.
+- **Platform middlewares**, defined once in Traefik's file config:
+  - `auth-required`, `auth-optional`: forward auth to `core` `/auth/verify?mode=...`, copying `X-User-Token` back onto the request.
+  - `auth-none`: no auth call; strips any incoming `X-User-Token`.
+  - security headers and a default CSP on every response; compression; per-app rate limits, body size limits and timeouts.
+- **Always strip** incoming `X-User-Token`, `X-User-*` and `Authorization` from browsers. Only the gateway sets identity.
+- **Strip the platform session cookie** before forwarding to apps. Traefik has no built-in way to drop a single cookie or headers by prefix, so a small local plugin does both: `deploy/traefik/plugins/platformstrip` (standard library only, runs in Traefik's Yaegi interpreter).
+- Entry points use `aliasHeadersStrategy: delete`, so `X_User_Token` and similar spellings cannot reach backends that would read them as `X-User-Token`.
+- **Reserved paths** no app may claim: `/auth`, `/platform`, `/admin`, `/` (the core app). Routes come from the approved manifest via the deploy portal, never freely from app tags.
+- **Block `/<app>/_/`** (the PocketBase dashboard) for every app. Admins use an SSH tunnel.
+- Realtime (SSE) routes such as `/<app>/api/realtime` get long timeouts and no buffering, generated automatically for PocketBase apps.
+
+## Orchestration: Nomad from day one
+
+- **3 servers run Nomad in server mode** (a quorum that survives one failure) and also run apps. The 4th is client-only.
+- **No Consul at first.** Nomad's built-in service discovery and health checks cover routing and `iimakit.Call`. Add Consul later only for DNS lookups, services outside Nomad, KV and locks, or a service mesh.
+- **Nomad ACLs on from the start.** Only the deploy portal and super admins can submit jobs.
+- **Drivers:** `exec` for Go binaries. Node and Python apps use `exec`/`raw_exec` with the runtime installed on every client (Node 22, Python with per-app venv built in CI).
+- **Dynamic ports.** Apps listen on `NOMAD_IP_http:NOMAD_PORT_http`. The kits read these automatically.
+- **PocketBase data lives on a host volume** outside the job's directory, and the job is pinned to that node, so a redeploy can never start an app on an empty database.
+- Secrets in **Nomad Variables** (encrypted, per job), injected as env. Config files in Git encrypted with **sops**.
+- Snapshot Nomad's own state on a schedule (`nomad operator snapshot save`).
+
+## The core app (`core`)
+
+One Go service that owns everything platform-wide. It runs behind Traefik like any app.
+
+| Path | What |
+| --- | --- |
+| `/` | Home page and app directory (built from the registry) |
+| `/auth/login`, `/auth/callback`, `/auth/logout` | Sign-in with Google (Microsoft later, for external apps) |
+| `/auth/verify` | Forward-auth endpoint called by Traefik on every request |
+| `/auth/me` | Current user as JSON, for frontends |
+| `/auth/.well-known/jwks.json` | Public keys for verifying tokens |
+| `/auth/api/...` | Role management API (app admins), user lookup for services |
+| `/platform/...` | Shared navbar web component (`<iima-nav>`), CSS, icons |
+| `/admin` | Super admin and app admin UI: apps, roles, attributes, audit log |
+| catch-all | Platform 404 |
+
+`/auth/verify` is on the path of every authenticated request. Keep it the most boring, best-tested code on
+the platform. Phase 1 runs one instance on SQLite. Later it moves to Postgres with two instances on
+different servers (Postgres is also needed by self-hosted Inngest).
+
+### Sign-in
+
+- **Google OIDC.** For IIMA-only apps, send `hd=iima.ac.in` (so Google shows only IIMA accounts) and **check the `hd` claim in the ID token server-side**. The URL parameter is only a hint.
+- **External login is opt-in per app** (`login = "external"` in its manifest). The login page then also accepts any Google account (no `hd` hint, no `hd` check).
+- **Microsoft login is left out for now.** When it is added, follow Garba's tenant rule: `organizations` or one named tenant, never `common` or `consumers`. Until then, exchange students sign in to external apps with a Google account.
+- **One session for everyone**, in an HttpOnly, Secure, `SameSite=Lax` cookie on path `/`. Sessions are stored server-side so logout and revocation work instantly.
+- **Tokens are only issued to apps whose policy the user fits.** A Gmail user visiting an IIMA-only app looks signed out there and sees "This app needs your @iima.ac.in account" with a **Switch account** button (`prompt=select_account`).
+- Login links: `/auth/login?rd=/auxesiscapital/portfolio`. `rd` must be a same-origin path.
+
+### `/auth/verify`
+
+- Traefik calls it with the original request's headers (`X-Forwarded-Uri`, `X-Forwarded-Method`, cookies).
+- It works out the app from the path prefix against the registry, then:
+  - `mode=required`: 401 if not signed in or not allowed. Traefik sends browsers to the login page; API calls get 401.
+  - `mode=optional`: always 200. Adds `X-User-Token` only if there is a valid session the app's policy allows.
+- **Recommended default: every app on `auth-optional`**, with checks in the app's handlers (`RequireUser`, `RequireRole`, PocketBase API rules). Use `auth-required` at the gateway only for fully private apps, as a safety net. Use `auth-none` for webhooks and health checks.
+- Fast path: sessions and role lookups cached in memory (about 30 seconds), so a role change applies within seconds.
+
+### The identity token (`X-User-Token`)
+
+- **Ed25519-signed JWT** (`EdDSA`), minted per request, short-lived (a few minutes), with `kid` for rotation.
+- Apps verify with the **public key** from JWKS. A leaked public key can't forge anything, so there are no per-app secrets to protect.
+- Claims, versioned as `v: 1`:
+
+```json
+{
+  "v": 1, "iss": "students.iima.ac.in", "aud": "auxesiscapital",
+  "sub": "u_8f3k...", "sid": "s_19ab...", "iat": 0, "exp": 0,
+  "email": "p25arnavd@iima.ac.in", "name": "Arnav Dixit", "picture": "https://lh3.googleusercontent.com/...",
+  "provider": "google", "member": true,
+  "affiliation": "student", "programme": "PGP", "batch": 2025, "year": 2,
+  "roles": ["admin"]
+}
+```
+
+- `aud` is the app id, so a token minted for one app is rejected by every other app.
+- `roles` holds **only this app's roles**.
+- `sid` lets apps notice a new sign-in (for example, Auxesis's sign-in log).
+- Exception for standalone PocketBase apps (below): they may also get an HS256 token signed with a per-app secret derived as `HMAC(master, app_id)`, because PocketBase JS hooks only verify HMAC tokens.
+
+### Roles and attributes
+
+Three tiers:
+- **Super admins** (2 or 3 people, so nobody gets locked out): create apps, appoint app admins. Bootstrapped by a CLI command.
+- **App admins**: manage roles for their own app only.
+- **Users.**
+
+What lives where:
+- **Common attributes are facts about a person, not grants.** `affiliation` (student, faculty, staff, alum, external), `programme` (PGP, PGPX, PhD, ePGP...), `batch` (a year). `year` (PGP1 or PGP2) is **derived** from batch and the academic year when the token is minted, so nobody updates 400 people every June. Defaults come from email patterns (moving Garba's `p26`/`f26` cohort logic here), with super-admin overrides and a roll-list import later.
+- **Per-app roles** are declared by the app in its manifest (`roles = ["admin", "volunteer"]`), stored centrally, and edited in `/admin` or by the app through `PUT /auth/api/apps/{app}/roles/{email}` (so Garba's People tab keeps its UI).
+- **App data that only looks like a role stays in the app.** Auxesis investors (from its ledger), Garba guest limits and per-person overrides, exchange guests. Test: if granting it needs domain knowledge, it is app data. If it is "let this person do X", it is a role.
+- **Every role change goes into an audit log** (who, what, when).
+- PocketBase apps **mirror** the token's roles into a `roles` field on their local `users` record (saving only on change), so API rules like `@request.auth.roles ~ "volunteer"` keep working. The mirror is a cache, never edited locally.
+
+## The app manifest (`app.toml`)
+
+One small file per app, in the platform repo's `apps/` registry, reviewed by PR. The deploy portal and
+`core` both read it.
+
+```toml
+id      = "auxesiscapital"          # also the JWT aud and the Nomad job name
+name    = "Auxesis Capital"
+path    = "/auxesiscapital"
+owners  = ["arnavdixit127@gmail.com"]   # who gets alerts; reviewed every term
+review  = "2027-03-31"
+shape   = "go-pocketbase"           # go-pocketbase | go | next | python | pocketbase
+login   = "iima"                    # iima (default) | external
+auth    = "optional"                # optional (default) | required
+roles   = ["admin"]
+public  = ["/api/aux/public", "/api/health"]   # optional: routes on auth-none
+realtime = true                     # long-timeout route for /api/realtime
+volume  = "auxesiscapital-data"     # host volume for pb_data
+memory  = 256                       # MB
+```
+
+## Kits (shared code, no shared state)
+
+### `iimakit` (Go, no PocketBase dependency)
+- `iimakit.NewVerifier(appID).Verify(ctx, token)`: accepts only EdDSA; checks signature (JWKS fetched once, cached, refreshed on unknown `kid`), expiry and `aud`.
+- `iimakit.Middleware(appID)`, `iimakit.User(r)`, `RequireUser(h)` (redirects browsers to login, 401 for APIs), `RequireRole(role, h)`.
+- `iimakit.Call(ctx, "marketdata", "GET /v1/prices?symbols=TCS,INFY", body, &out)`: service lookup in Nomad (cached), one pooled HTTP client, default timeout, retry on another instance, a service token identifying the caller, JSON decoding. The caller declares only the fields it needs.
+- `iimakit.Addr()` from `NOMAD_IP_http`/`NOMAD_PORT_http`, `/health` handler, graceful shutdown, JSON logs, base path handling, SPA static handler (`immutable` on hashed assets, `no-cache` on HTML and `sw.js`, gzip).
+- **Dev mode**: `IIMA_DEV_USER=you@iima.ac.in` injects a fake signed-in user, so authors can work without the platform.
+
+### `iimakit/pb` (Go, wraps PocketBase)
+Everything Auxesis and Garba each wrote by hand:
+- `pb.New(pb.Config{AppID, Access})` returns the real `*pocketbase.PocketBase`, never hidden, so apps keep full access to hooks and routes. Every default can be turned off.
+- SSO middleware: verifies the token, calls the app's `Access(email, name, claims)` (for example Auxesis's `SignIn`, which maps an email to admin, investor or guest), sets `e.Auth`. Removing someone takes effect on their next request.
+- Turns off OAuth2 and password auth on `users`; keeps superuser login for the dashboard only.
+- Mirrors roles; `pb.HasRole(e, "admin")`.
+- SPA serving from `pb_public` with the cache rules; `APP_URL`, trusted proxy headers and app name from env (today's `applyEnvConfig`).
+- `/_/` refused unless the request comes from localhost.
+- Built-in backups to S3-compatible storage from env.
+- `OnFirstSeen(sid)` hook, replacing the OAuth sign-in event Auxesis uses for its visit log.
+- Pinned per PocketBase minor version (both apps are on v0.40.4), because PocketBase is pre-1.0 and breaks APIs between minors.
+
+### `@iima/kit` (npm)
+- Everything generic in today's `web/src/lib.ts`: `BASE`, `asset()`, `api()`, `ApiError`, `createStore`, `storage`, the router (`appPath`, `navigate`), `me()` from `/auth/me`, `login(next)` and `logout()` redirects.
+- `@iima/kit/next`: `getUser()` for server components and route handlers, verifying the token with `jose` (Ed25519 works in Next middleware).
+
+### Python
+A small helper (PyJWT with the JWKS) for FastAPI: `user = iima_user(request)`. Only Portfolio League needs it today.
+
+### App template (later)
+`iima-app-template`, lifted from Auxesis: Vite + Preact frontend, `iimakit/pb` backend, `app.toml`, CI workflow. A second template for Next.js. Two supported paths, no more.
+
+## Apps on a standalone PocketBase binary
+
+BetaMarkets and Portfolio League run PocketBase as a separate process, with no Go code to put middleware in,
+and their browsers call PocketBase directly. Options, to decide in their phase:
+1. **Hide PocketBase behind the app server.** The Next.js or FastAPI server verifies the token and calls PocketBase internally as a superuser or service account. PocketBase gets no public route. Cleanest security, but more code moves server-side.
+2. **pb_hooks bridge.** A shared `pb_hooks/sso.pb.js` reads an HS256 token signed with the app's derived secret and sets `e.auth`, so existing API rules keep working and the browser can keep talking to PocketBase through the gateway.
+3. **Move to Go + PocketBase as a framework**, if the app is being reworked anyway.
+
+Either way, the public `/betamarkets/pb` route and its dashboard must stop being reachable from outside.
+
+## Data and files
+
+- **Every app keeps its own PocketBase** (database, files, realtime). No shared PocketBase: SQLite has one writer, apps compile PocketBase in, and shared instances would couple deploys, backups and failures. Garba's "20 parallel scans let in exactly once" depends on one local SQLite transaction.
+- Apps own their files and the access rules for them. If disk or mobility becomes a problem, add self-hosted S3 (Garage or MinIO) as **infrastructure**: each app gets its own bucket, and PocketBase points at it natively.
+- Cross-app data access only through HTTP APIs, never shared tables.
+- Next.js and Python apps bring their own storage, so backups for them are set up per app (or on a platform-run Postgres).
+
+## Internal calls
+
+- **Plain HTTP + JSON** through `iimakit.Call`. No gRPC, no JSON-RPC, no shared client packages, no codegen. An internal call costs well under a millisecond on the LAN; the time goes to handler work and SQLite.
+- What keeps it safe: **versioned paths** (`/v1/...`, add `/v2` for breaking changes and keep `/v1` alive for a while); **add fields, never rename or remove** within a version; timeouts and error checks on every call (the kit sets defaults).
+- Each service documents its endpoints in its README. OpenAPI (Huma) and an API catalogue page can be added later if callers start breaking.
+- Service-to-service calls carry a service token so the callee knows who is calling.
+
+## Background jobs: Inngest
+
+- **One self-hosted Inngest server** for every app that needs durable, multi-step workflows with retries. Needs Postgres and Redis.
+- Internal only. Apps send events to it at its internal address; Inngest calls each app's `/api/inngest` **directly on the app's internal address**, not through Traefik (there is no user session, so forward auth would block it). Apps verify Inngest's signature on every call.
+- **Namespaced events** per app (`portfolioleague/close.done`, `garba/pass.issued`). Check how the Inngest version in use isolates apps and signing keys.
+- Dashboard exposed to super admins only.
+- Not mandatory. PocketBase cron plus a jobs collection is enough for simple scheduled work, such as Auxesis's tracker sync.
+
+## Market data service
+
+Shared, because Auxesis, beta-app and Portfolio League each fetch prices on their own today.
+- Polls prices every few minutes for the **union of symbols** apps register (Portfolio League's ~100 securities, Auxesis's holdings, indices): one fetch per symbol instead of one per app, which matters with Yahoo-style rate limits.
+- Owns the NSE holiday calendar, market hours in IST, retries, stale-price detection and **corporate actions** (dividends, splits).
+- Internal API (`GET /v1/prices`, `GET /v1/closes?date=`), plus a read-only public route if frontends need live prices.
+- Emits `market/close.ready {date}` once official closes are in.
+
+Portfolio League's close pipeline then runs in Inngest on that event: match orders → execute fills → apply corporate actions → recompute portfolios and leaderboard. Every step **idempotent per trading date** (fills keyed by `(order_id, date)`, dividends recorded as applied before cash is credited), with a **concurrency key on the date** so two runs for one day never overlap. It never runs on a holiday or on partial prices.
+
+## Deploy portal (no SSH)
+
+- **Control plane only.** It never runs or supervises apps, so apps keep running if the portal is down.
+- Owners connect a repo through a **GitHub App**. The portal reads `app.toml`, shows a form for env vars, secrets, path, auth mode and login policy, and has Deploy, Rollback and Logs.
+- **Builds run in GitHub Actions** (a reusable workflow from the template), never on our servers, because building runs arbitrary install scripts. Artifacts are published as releases tagged by commit.
+- The portal turns the manifest and config into a **Nomad job** and submits it. Nomad downloads the artifact, starts it, restarts it, and keeps the previous version for one-click rollback. Secrets go into Nomad Variables.
+- **A new app's first deploy needs super-admin approval** (the review step). Later deploys by its owners go straight through.
+- Later: an `iima` CLI (`iima new`, `iima dev`, `iima deploy`, `iima logs`, `iima backup restore`) over the same API.
+
+## Observability, backups, operations
+
+- **Metrics:** Traefik's Prometheus metrics (per-app rate, latency, errors) in Grafana, with no app changes.
+- **Logs:** Nomad task logs and Traefik access logs into Loki.
+- **Uptime:** Uptime Kuma pings each health check and alerts the app's **owners**, plus a public status page.
+- **Errors:** GlitchTip (Sentry-compatible), hooked into the kits.
+- **Page analytics:** self-hosted Umami, **anonymous** (salted daily hashes, as Auxesis already does). App admins see only their own app.
+- **Privacy:** emails in logs only where an app needs them, with a retention limit (30 to 90 days). India's DPDP Act applies.
+- **Backups:** PocketBase scheduled backups or Litestream to off-box S3 for every app; Nomad snapshots; core's database. **Monthly restore drill** of one random app.
+- **Load-test event apps** (Garba-style gate rushes) before the night.
+- **App lifecycle:** every app has owners and a review date; an archive mode (read-only or static snapshot); prefer **multi-tenant apps over yearly clones** (one events app rather than `garba2026`, `garba2027`...).
+- **Platform contract versioned** (`v` claim, manifest version) with deprecation windows. Renovate keeps kit and PocketBase versions in step across app repos.
+
+## Security summary
+
+- Gateway strips identity headers and the session cookie; only it sets `X-User-Token`.
+- App ports accept connections only from the cluster (firewall), and apps bind to the internal interface, never `0.0.0.0` on a public interface.
+- Ed25519 tokens with per-app `aud`; no shared signing secret in apps.
+- Reserved paths; routes only from approved manifests; Nomad ACLs.
+- PocketBase dashboards never public.
+- Gateway CSP and security headers by default; CSRF protection required on state-changing endpoints (one origin means app A's JS can POST to app B).
+- CI for every app runs `govulncheck` / `npm audit` before deploy; review before first deploy.
+- The biggest remaining risk is that every app shares one origin. Keep asking IT for a second hostname for unreviewed apps.
+
+## Decided against (for now)
+
+| Idea | Why not |
+| --- | --- |
+| gRPC, JSON-RPC between apps | No real speed gain on a LAN; protobuf tooling students will fight; browsers, Inngest and forward auth are HTTP anyway. Connect RPC is the escape hatch if ever needed. |
+| Go Micro, go-kit and similar microservice frameworks; Gin, Echo, Fiber | Discovery is Nomad's job and routing and auth are Traefik's; these frameworks bring their own versions of both, plus RPC and codegen. Go 1.22+ `net/http` routing covers what core and the kits need. Fiber does not even use `net/http`. |
+| Typed client packages per service, OpenAPI codegen | Two places to update. Dynamic `iimakit.Call` with locally declared structs is enough. |
+| Consul | Nomad's discovery covers it. Revisit for DNS, services outside Nomad, KV/locks or a mesh. |
+| Vault | Heavy to run (unsealing, HA, policies). Nomad Variables plus sops cover it. |
+| Consul Connect / service mesh | Sidecars on every app. Revisit at 30+ apps. |
+| Kubernetes, k3s | More than 3 to 4 servers need. |
+| One shared PocketBase | Single writer, coupled deploys, all-or-nothing backups, one superuser over everyone's data. |
+| A caching server (Redis) | Not needed at campus scale; add only for a measured hotspot. |
+| The core app proxying all traffic | Single point of failure and a reimplementation of Traefik. Traefik routes; core only answers "who is this?". |
+| Apps calling the auth service per request | Every app would need the session cookie and correct code; one mistake leaves an app open. |
+| Writing our own gateway | Traefik already does TLS, HTTP/2, WebSockets, retries, rate limits. |
+| Terraform, Packer, Waypoint, Boundary | Fixed campus machines; a setup script or Ansible is enough. Waypoint is discontinued. |
+
+HashiCorp products are under the Business Source License (and HashiCorp is now part of IBM). Internal use
+like ours is allowed.
+
+## Open questions
+
+- Which server hosts what today, and where does `chatbot.iima.ac.in` (used by BetaMarkets' PocketBase URL) fit?
+- Will IT give a second hostname for unreviewed apps?
+- Can the institute share a roll list for attributes, or do email patterns have to do?
+- Portfolio League: confirm it is fully on PocketBase now (README still describes Supabase and Vercel).
+- Choice for standalone PocketBase apps (hide behind the server, pb_hooks bridge, or move to Go).

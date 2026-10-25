@@ -1,0 +1,8 @@
+# Local stack: downloaded Traefik, built binaries, core's dev database
+.dev/
+# Secrets
+.env
+*.env.local
+# Build output
+*.exe
+data/

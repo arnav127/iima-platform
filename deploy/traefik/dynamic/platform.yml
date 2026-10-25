@@ -1,0 +1,91 @@
+# Platform middlewares and core's routes. Shared by the local stack and (from phase 4) the cluster.
+# Traefik renders this file as a Go template; IIMA_CORE_URL is core's internal address.
+#
+# Apps attach exactly one of: auth-optional (the default), auth-required, auth-none.
+http:
+  middlewares:
+    # Only the gateway sets identity: drop anything a browser sent.
+    strip-identity:
+      plugin:
+        platformstrip:
+          headers: [Authorization]
+          headerPrefixes: [X-User-]
+
+    # Apps never see the platform session cookie. Runs after forward auth, which needs it.
+    strip-session:
+      plugin:
+        platformstrip:
+          cookies: [iima_session]
+
+    verify-optional:
+      forwardAuth:
+        address: '{{ env "IIMA_CORE_URL" }}/auth/verify?mode=optional'
+        trustForwardHeader: false
+        maxResponseBodySize: 65536
+        authRequestHeaders: [Cookie, Accept]
+        authResponseHeaders: [X-User-Token]
+
+    verify-required:
+      forwardAuth:
+        address: '{{ env "IIMA_CORE_URL" }}/auth/verify?mode=required'
+        trustForwardHeader: false
+        maxResponseBodySize: 65536
+        authRequestHeaders: [Cookie, Accept]
+        authResponseHeaders: [X-User-Token]
+
+    # Defaults for every response. An app that needs more (e.g. Google Fonts) gets its own CSP later.
+    security-headers:
+      headers:
+        frameDeny: true
+        contentTypeNosniff: true
+        referrerPolicy: strict-origin-when-cross-origin
+        contentSecurityPolicy: "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self'"
+
+    compress:
+      compress: {}
+
+    to-404:
+      replacePath:
+        path: /platform/404
+
+    auth-optional:
+      chain:
+        middlewares: [strip-identity, verify-optional, strip-session, security-headers, compress]
+    auth-required:
+      chain:
+        middlewares: [strip-identity, verify-required, strip-session, security-headers, compress]
+    auth-none:
+      chain:
+        middlewares: [strip-identity, strip-session, security-headers, compress]
+    # Core's own pages keep the session cookie: core is the one service allowed to read it.
+    platform:
+      chain:
+        middlewares: [strip-identity, security-headers, compress]
+
+  routers:
+    # Never public: the forward-auth endpoint, and every app's PocketBase dashboard (/<app>/_/).
+    # Admins reach dashboards through an SSH tunnel.
+    blocked:
+      rule: "Path(`/auth/verify`) || PathRegexp(`^/[^/]+/_(/|$)`)"
+      priority: 10000
+      service: core
+      middlewares: [platform, to-404]
+
+    core-auth:
+      rule: "Path(`/auth`) || PathPrefix(`/auth/`) || PathPrefix(`/platform/`)"
+      priority: 1000
+      service: core
+      middlewares: [platform]
+
+    # Home page and the platform 404 for anything no app claims. Apps use priority 2000 and up.
+    core-catchall:
+      rule: "PathPrefix(`/`)"
+      priority: 1
+      service: core
+      middlewares: [platform]
+
+  services:
+    core:
+      loadBalancer:
+        servers:
+          - url: '{{ env "IIMA_CORE_URL" }}'

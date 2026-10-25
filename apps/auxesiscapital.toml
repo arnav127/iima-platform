@@ -1,0 +1,13 @@
+id       = "auxesiscapital"
+name     = "Auxesis Capital"
+path     = "/auxesiscapital"
+owners   = ["arnavdixit127@gmail.com"]
+review   = "2027-03-31"
+shape    = "go-pocketbase"
+login    = "iima"
+auth     = "optional"
+roles    = ["admin"]
+public   = ["/api/health"]
+realtime = true
+volume   = "auxesiscapital-data"
+memory   = 256
