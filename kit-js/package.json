@@ -1,0 +1,14 @@
+{
+  "name": "@iima/kit",
+  "version": "0.1.0",
+  "description": "Frontend kit for apps on the students.iima.ac.in platform",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": ["src"],
+  "scripts": {
+    "test": "node --test src/*.test.ts"
+  }
+}

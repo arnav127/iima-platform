@@ -1,7 +1,7 @@
 // Command demo is the stub app for the local stack. It shows who the gateway says is signed in,
 // and what identity-related headers actually reached the app (there should be none but the token).
 //
-// Configuration: APP_ID and APP_PATH (e.g. demo and /demo), PORT, IIMA_JWKS_URL.
+// Configuration: APP_ID (e.g. demo), PORT, IIMA_JWKS_URL.
 package main
 
 import (
@@ -12,35 +12,31 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"time"
 
 	iimakit "github.com/arnav127/iima-platform/kit"
 )
 
 func main() {
+	iimakit.SetupLogging()
 	appID := os.Getenv("APP_ID")
-	base := os.Getenv("APP_PATH")
-	if appID == "" || !strings.HasPrefix(base, "/") {
-		slog.Error("set APP_ID and APP_PATH, e.g. APP_ID=demo APP_PATH=/demo")
+	if appID == "" {
+		slog.Error("set APP_ID, e.g. APP_ID=demo")
 		os.Exit(1)
 	}
 
+	// The gateway strips the app path, so routes are at "/" and links use iimakit.Prefix.
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET "+base+"/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
-	mux.Handle("GET "+base, http.RedirectHandler(base+"/", http.StatusFound))
-	mux.HandleFunc("GET "+base+"/{$}", func(w http.ResponseWriter, r *http.Request) { page(w, r, appID, base) })
-	mux.Handle("GET "+base+"/private", iimakit.RequireUser(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("GET /health", iimakit.Health())
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { page(w, r, appID) })
+	mux.Handle("GET /private", iimakit.RequireUser(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Write([]byte("Only signed-in users see this. Hello, " + iimakit.User(r).Email + "\n"))
 	})))
-	mux.Handle("GET "+base+"/admin", iimakit.RequireRole("admin", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("GET /admin", iimakit.RequireRole("admin", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("admin area\n"))
 	})))
 
-	addr := iimakit.Addr()
-	slog.Info("demo listening", "app", appID, "path", base, "addr", addr)
-	srv := &http.Server{Addr: addr, Handler: iimakit.Middleware(appID)(mux), ReadHeaderTimeout: 10 * time.Second}
-	if err := srv.ListenAndServe(); err != nil {
+	if err := iimakit.Serve(iimakit.Middleware(appID)(mux)); err != nil {
 		slog.Error("demo stopped", "err", err)
 		os.Exit(1)
 	}
@@ -74,7 +70,8 @@ pre{background:rgba(127,127,127,.12);padding:1rem;border-radius:8px;overflow:aut
 </table>
 </body></html>`))
 
-func page(w http.ResponseWriter, r *http.Request, appID, base string) {
+func page(w http.ResponseWriter, r *http.Request, appID string) {
+	base := iimakit.Prefix(r)
 	u := iimakit.User(r)
 	d := map[string]any{
 		"AppID": appID, "Base": base, "User": u,

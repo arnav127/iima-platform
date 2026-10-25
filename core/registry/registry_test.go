@@ -19,8 +19,11 @@ func TestParseDefaultsAndErrors(t *testing.T) {
 name = "Demo"
 path = "/demo"
 shape = "go"`)
-	if a.Login != LoginIIMA || a.Auth != AuthOptional {
-		t.Fatalf("defaults: login %q auth %q", a.Login, a.Auth)
+	if a.Login != LoginIIMA || a.Auth != AuthOptional || !a.Strips() {
+		t.Fatalf("defaults: login %q auth %q strip %v", a.Login, a.Auth, a.Strips())
+	}
+	if n := mustApp(t, "id=\"web\"\nname=\"W\"\npath=\"/web\"\nshape=\"next\""); n.Strips() {
+		t.Fatal("next apps keep their path by default")
 	}
 
 	bad := map[string]string{

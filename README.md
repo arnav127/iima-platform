@@ -28,14 +28,26 @@ that spoofed `X-User-*` headers and the session cookie never get through.
 To test real Google sign-in, copy `.env.example` to `.env`, fill in an OAuth client, and run
 `go run ./dev/cmd/devstack -google`.
 
+To run a real Go + PocketBase app from its repo next to this one, build its frontend for its path
+and add `-app`:
+
+```
+cd ../auxesiscapital && VITE_BASE=/auxesiscapital/ npm run build && cd ../iima-platform
+go run ./dev/cmd/devstack -app auxesiscapital=../auxesiscapital
+```
+
+The app's env (e.g. `ADMIN_EMAILS`) comes from your shell; its data lives in `.dev/data/<id>`.
+In Git Bash, prefix the build with `MSYS_NO_PATHCONV=1` so `/auxesiscapital/` is not turned into a
+Windows path.
+
 ## Layout
 
 | Folder | What |
 | --- | --- |
 | `core/` | Sign-in, sessions, `/auth/verify`, JWKS, `/auth/me`, home page. Go, SQLite. |
-| `kit/` | `iimakit`: verifies `X-User-Token` in Go apps (`Middleware`, `User`, `RequireUser`, `RequireRole`). |
-| `kit/pb/` | `iimakit/pb` for PocketBase apps (phase 2). |
-| `kit-js/` | `@iima/kit` for frontends and Next.js (phase 2 and 6). |
+| `kit/` | `iimakit`: verifies `X-User-Token` in Go apps (`Middleware`, `User`, `RequireUser`, `RequireRole`), plus `Addr`, `Serve`, `SPA`, `Health`, dev user. |
+| `kit/pb/` | `iimakit/pb`: puts a Go + PocketBase app behind the platform (`pb.New`). Its own Go module. |
+| `kit-js/` | `@iima/kit` for frontends: `api`, `me`, `login`, `logout`, router, stores. (`/next` in phase 6.) |
 | `apps/` | One `app.toml` per app: the registry. |
 | `deploy/traefik/` | Gateway config and the `platformstrip` plugin. |
 | `deploy/nomad/` | Job specs (phase 4). |
@@ -50,4 +62,5 @@ Each Go module is tested on its own, as CI does:
 cd core && go vet ./... && go test ./...
 ```
 
-Same for `kit`, `dev` and `deploy/traefik/plugins/platformstrip`.
+Same for `kit`, `kit/pb`, `dev` and `deploy/traefik/plugins/platformstrip`. For the JS kit:
+`cd kit-js && npm test`.

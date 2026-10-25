@@ -25,11 +25,13 @@ why. Run everything alongside today's Apache setup until an app is cut over; not
 - [ ] Sign in once with a real Google account (needs an OAuth client in `.env`)
 
 ## Phase 2: kits and the first app
-- [ ] `iimakit`: Verify, Middleware, User, RequireUser, RequireRole, Addr (done in phase 1), health, logging, SPA handler, dev mode
-- [ ] `iimakit/pb`: `pb.New`, SSO middleware calling `Access`, OAuth off, roles mirror, SPA serving, env config, `/_/` localhost-only, backups, `OnFirstSeen`
-- [ ] `@iima/kit`: generic parts of `lib.ts`, `login()`, `logout()`, `me()`
-- [ ] Port **Auxesis** on a branch: drop its OAuth, `applyEnvConfig` provider setup and `/auth/callback`; `SignIn` becomes `Access`; sign-in visits from `OnFirstSeen`; frontend drops `pb.authStore`
-- [ ] Auxesis works end to end on the local stack
+- [x] `iimakit`: Verify, Middleware, User, RequireUser, RequireRole, Addr, health, logging, SPA handler, dev mode, `Prefix`/`SameOrigin`
+- [x] `iimakit/pb`: `pb.New`, SSO middleware calling `Access`, OAuth off, roles mirror, SPA serving, env config, `/_/` and superuser API tunnel-only, backups, `OnFirstSeen`
+- [x] `@iima/kit`: generic parts of `lib.ts`, `login()`, `logout()`, `me()`
+- [x] Gateway strips the app path for non-Next apps (`strip_path` in `app.toml`)
+- [x] Port **Auxesis** on a branch (`platform-migration` in `../auxesiscapital`): drop its OAuth, `applyEnvConfig` provider setup and `/auth/callback`; `SignIn` becomes `Access`; sign-in visits from `OnFirstSeen`; frontend drops `pb.authStore`
+- [x] Auxesis works end to end on the local stack: `go run ./dev/cmd/devstack -app auxesiscapital=../auxesiscapital`
+- [ ] Publish the kits as versions (tag `kit/v0.1.0`, `kit/pb/v0.1.0`) so apps drop their `replace` and `file:` paths
 
 ## Phase 3: roles and attributes
 - [ ] Attributes from email patterns (Garba's cohort logic), with overrides; `year` derived from batch

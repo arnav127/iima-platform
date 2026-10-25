@@ -172,7 +172,13 @@ public  = ["/api/aux/public", "/api/health"]   # optional: routes on auth-none
 realtime = true                     # long-timeout route for /api/realtime
 volume  = "auxesiscapital-data"     # host volume for pb_data
 memory  = 256                       # MB
+strip_path = true                   # default: true, except shape = "next"
 ```
+
+**Path stripping.** The gateway removes the app's path before forwarding (as Apache does today), so
+a Go, PocketBase or Python app serves at `/` and learns its public prefix from `X-Forwarded-Prefix`
+(`iimakit.Prefix`). Next.js apps keep the full path, because their `basePath` expects it. The strip
+runs after forward auth, so core always sees the full path.
 
 ## Kits (shared code, no shared state)
 
@@ -180,23 +186,25 @@ memory  = 256                       # MB
 - `iimakit.NewVerifier(appID).Verify(ctx, token)`: accepts only EdDSA; checks signature (JWKS fetched once, cached, refreshed on unknown `kid`), expiry and `aud`.
 - `iimakit.Middleware(appID)`, `iimakit.User(r)`, `RequireUser(h)` (redirects browsers to login, 401 for APIs), `RequireRole(role, h)`.
 - `iimakit.Call(ctx, "marketdata", "GET /v1/prices?symbols=TCS,INFY", body, &out)`: service lookup in Nomad (cached), one pooled HTTP client, default timeout, retry on another instance, a service token identifying the caller, JSON decoding. The caller declares only the fields it needs.
-- `iimakit.Addr()` from `NOMAD_IP_http`/`NOMAD_PORT_http`, `/health` handler, graceful shutdown, JSON logs, base path handling, SPA static handler (`immutable` on hashed assets, `no-cache` on HTML and `sw.js`, gzip).
-- **Dev mode**: `IIMA_DEV_USER=you@iima.ac.in` injects a fake signed-in user, so authors can work without the platform.
+- `iimakit.Addr()` from `NOMAD_IP_http`/`NOMAD_PORT_http`, `Health()`, `Serve()` with graceful shutdown, `SetupLogging()` (JSON), `Prefix(r)`/`OriginalURI(r)` for the stripped base path, `SPA(fs)` (`immutable` on hashed assets, `no-cache` on HTML and `sw.js`; compression is left to the gateway).
+- `SameOrigin(r)`: a CSRF check for state-changing requests, now that identity rides in a cookie.
+- **Dev mode**: `IIMA_DEV_USER=you@iima.ac.in` (and `IIMA_DEV_ROLES`) injects a fake signed-in user when no token is present, so authors can work without the platform. Ignored on the cluster (`NOMAD_ALLOC_ID` set), and never used to replace a rejected token.
 
 ### `iimakit/pb` (Go, wraps PocketBase)
 Everything Auxesis and Garba each wrote by hand:
-- `pb.New(pb.Config{AppID, Access})` returns the real `*pocketbase.PocketBase`, never hidden, so apps keep full access to hooks and routes. Every default can be turned off.
-- SSO middleware: verifies the token, calls the app's `Access(email, name, claims)` (for example Auxesis's `SignIn`, which maps an email to admin, investor or guest), sets `e.Auth`. Removing someone takes effect on their next request.
-- Turns off OAuth2 and password auth on `users`; keeps superuser login for the dashboard only.
-- Mirrors roles; `pb.HasRole(e, "admin")`.
-- SPA serving from `pb_public` with the cache rules; `APP_URL`, trusted proxy headers and app name from env (today's `applyEnvConfig`).
-- `/_/` refused unless the request comes from localhost.
-- Built-in backups to S3-compatible storage from env.
-- `OnFirstSeen(sid)` hook, replacing the OAuth sign-in event Auxesis uses for its visit log.
-- Pinned per PocketBase minor version (both apps are on v0.40.4), because PocketBase is pre-1.0 and breaks APIs between minors.
+- `pb.New(pb.Config{AppID, Access})` returns the real `*pocketbase.PocketBase`, never hidden, so apps keep full access to hooks and routes. Every default can be turned off. `serve` listens on `iimakit.Addr()` unless `--http` is given.
+- SSO middleware: verifies the token, calls the app's `Access(e, claims)` (for Auxesis, `SignIn`, which maps an email to admin, investor or guest), sets `e.Auth`. `Access` returning no record means "signed in, but not a user of this app": the request runs signed out and `pb.Claims(e)` still says who it is. Removing someone takes effect on their next request. Cross-origin state-changing requests run signed out.
+- Turns off OAuth2, password, OTP and MFA on `users`; superusers still log in, but only through the tunnel.
+- Mirrors roles into a `roles` field when the collection has one; `pb.HasRole(e, "admin")`.
+- SPA serving from `--publicDir` (default `pb_public` next to the binary) with the cache rules; `APP_URL`, trusted proxy headers and app name from env (today's `applyEnvConfig`).
+- `/_/` and the superuser API refused unless the request comes over an SSH tunnel: loopback peer and no `X-Forwarded-For` (a gateway on the same machine also connects from loopback, but always adds that header).
+- Built-in backups to S3-compatible storage from env (`BACKUP_CRON`, `BACKUP_S3_*`).
+- `OnFirstSeen(e, user, claims)` hook, once per platform session, replacing the OAuth sign-in event Auxesis uses for its visit log. Seen sessions are kept in a small table so restarts do not repeat it.
+- A separate Go module (`kit/pb`), so `iimakit` never depends on PocketBase. Pinned per PocketBase minor version (both apps are on v0.40.4), because PocketBase is pre-1.0 and breaks APIs between minors.
 
 ### `@iima/kit` (npm)
 - Everything generic in today's `web/src/lib.ts`: `BASE`, `asset()`, `api()`, `ApiError`, `createStore`, `storage`, the router (`appPath`, `navigate`), `me()` from `/auth/me`, `login(next)` and `logout()` redirects.
+- TypeScript source with no build step and no framework dependency; stores expose `subscribe()`, and each app keeps its own few-line hook (Preact's `use()` in Auxesis). Until it is published, apps depend on it with `"@iima/kit": "file:../iima-platform/kit-js"`.
 - `@iima/kit/next`: `getUser()` for server components and route handlers, verifying the token with `jose` (Ed25519 works in Next middleware).
 
 ### Python

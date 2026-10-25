@@ -26,6 +26,9 @@ func VerifierMiddleware(v *Verifier) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			raw := r.Header.Get(TokenHeader)
 			if raw == "" {
+				if dev := DevClaims(v.AppID); dev != nil {
+					r = r.WithContext(context.WithValue(r.Context(), ctxKey{}, dev))
+				}
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -54,7 +57,7 @@ func RequireUser(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if User(r) == nil {
 			if wantsHTML(r) {
-				http.Redirect(w, r, LoginURL(r.URL.RequestURI()), http.StatusFound)
+				http.Redirect(w, r, LoginURL(OriginalURI(r)), http.StatusFound)
 				return
 			}
 			writeError(w, http.StatusUnauthorized, "sign in required")

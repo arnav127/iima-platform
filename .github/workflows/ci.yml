@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: [kit, core, dev, deploy/traefik/plugins/platformstrip]
+        module: [kit, kit/pb, core, dev, deploy/traefik/plugins/platformstrip]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -31,3 +31,15 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  kit-js:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kit-js
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm test

@@ -32,6 +32,10 @@ type App struct {
 	Realtime bool     `toml:"realtime"`
 	Volume   string   `toml:"volume"`
 	Memory   int      `toml:"memory"`
+	// StripPath makes the gateway remove the app's path before forwarding, so the app serves at
+	// "/" (and reads its public prefix from X-Forwarded-Prefix). Defaults to true, except for
+	// Next.js apps, which expect the full path because of their basePath.
+	StripPath *bool `toml:"strip_path"`
 
 	File string `toml:"-"` // where it was loaded from, for error messages
 }
@@ -51,6 +55,9 @@ var (
 	pathRe = regexp.MustCompile(`^/[a-z0-9][a-z0-9-]*$`)
 	shapes = []string{"go-pocketbase", "go", "next", "python", "pocketbase"}
 )
+
+// Strips reports whether the gateway removes the app's path before forwarding.
+func (a *App) Strips() bool { return a.StripPath == nil || *a.StripPath }
 
 // Registry is the set of known apps, keyed by their path.
 type Registry struct {
@@ -103,6 +110,10 @@ func Parse(b []byte) (*App, error) {
 	}
 	if a.Auth == "" {
 		a.Auth = AuthOptional
+	}
+	if a.StripPath == nil {
+		strip := a.Shape != "next"
+		a.StripPath = &strip
 	}
 	return &a, a.validate()
 }
