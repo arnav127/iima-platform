@@ -34,11 +34,12 @@ why. Run everything alongside today's Apache setup until an app is cut over; not
 - [ ] Publish the kits as versions (tag `kit/v0.1.0`, `kit/pb/v0.1.0`) so apps drop their `replace` and `file:` paths
 
 ## Phase 3: roles and attributes
-- [ ] Attributes from email patterns (Garba's cohort logic), with overrides; `year` derived from batch
-- [ ] Super admins (CLI bootstrap), app admins, per-app roles declared in `app.toml`
-- [ ] `/admin` UI and `PUT /auth/api/apps/{app}/roles/{email}`; audit log
-- [ ] Role cache (~30 s); roles in the token
-- [ ] Auxesis drops `ADMIN_EMAILS`
+- [x] Attributes from email patterns (Garba's cohort logic), with overrides; `year` derived from batch
+- [x] Super admins (CLI bootstrap: `core superadmin add`), app admins, per-app roles declared in `app.toml`
+- [x] `/admin` UI and `PUT /auth/api/apps/{app}/roles/{email}`; audit log
+- [x] Role cache (~30 s); roles and attributes in the token and in `/auth/me?app=`
+- [x] Auxesis drops `ADMIN_EMAILS` (on its `platform-migration` branch)
+- [ ] Before Auxesis cuts over: grant today's `ADMIN_EMAILS` the `admin` role on the platform
 
 ## Phase 4: the cluster
 - [ ] Nomad: 3 servers (also clients) + 1 client, ACLs, `exec` driver, Node and Python runtimes on every client

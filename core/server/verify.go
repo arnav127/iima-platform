@@ -29,11 +29,12 @@ func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case app != nil && sess != nil && allowed(sess.User, app):
-		u := sess.User
-		tok, err := s.cfg.Signer.Mint(iimakit.Claims{
-			Audience: app.ID, Subject: u.ID, Session: sess.SID,
-			Email: u.Email, Name: u.Name, Picture: u.Picture, Provider: u.Provider, Member: u.Member,
-		})
+		claims, err := s.claimsFor(r.Context(), sess, app)
+		if err != nil {
+			s.serverError(w, "build claims", err)
+			return
+		}
+		tok, err := s.cfg.Signer.Mint(claims)
 		if err != nil {
 			s.serverError(w, "mint token", err)
 			return
@@ -68,8 +69,8 @@ func (s *Server) refuse(w http.ResponseWriter, r *http.Request, status int, targ
 	writeJSON(w, status, map[string]string{"error": msg, "login": target})
 }
 
-// handleMe is the current user for frontends. /auth/me?app=<id> also says whether that app's
-// policy allows them.
+// handleMe is the current user for frontends, with their attributes. /auth/me?app=<id> also
+// says whether that app's policy allows them, and their roles there.
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	sess := s.session(r)
 	if sess == nil {
@@ -77,13 +78,28 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := sess.User
+	a, err := s.attributes(r.Context(), u)
+	if err != nil {
+		s.serverError(w, "attributes", err)
+		return
+	}
 	out := map[string]any{
 		"signedIn": true, "email": u.Email, "name": u.Name, "picture": u.Picture,
 		"provider": u.Provider, "member": u.Member,
+		"affiliation": a.Affiliation, "programme": a.Programme, "batch": a.Batch, "year": a.Year,
 	}
 	if id := r.URL.Query().Get("app"); id != "" {
-		if a := s.cfg.Registry.ByID(id); a != nil {
-			out["allowed"] = allowed(u, a)
+		if app := s.cfg.Registry.ByID(id); app != nil {
+			ok := allowed(u, app)
+			out["allowed"] = ok
+			if ok {
+				roles, err := s.roles(r.Context(), app.ID, u.Email)
+				if err != nil {
+					s.serverError(w, "roles", err)
+					return
+				}
+				out["roles"] = append([]string{}, roles...)
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, out)

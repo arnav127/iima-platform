@@ -17,6 +17,26 @@ Short how-tos for whoever runs the platform this year. Filled in as each phase l
 Add `apps/<id>.toml` (copy an existing one) in a pull request. Core refuses to start if a manifest is
 invalid, has an unknown field, or reuses an id or path, so a typo cannot quietly change who can sign in.
 
+## Super admins, app admins and roles
+
+The first super admin is added on the server, with core's own binary and the same `CORE_DATA`:
+
+```
+core superadmin add someone@iima.ac.in
+core superadmin list
+```
+
+After that, everything is in `/admin` (signed in as a super admin):
+
+- **Apps:** pick an app, then grant or remove its roles (only roles its `app.toml` declares) and appoint app admins. App admins see only their apps and can only change roles.
+- **People:** look up an email to see the attributes the platform derives (affiliation, programme, batch, year) and their roles in every app. Set an override when the address is misleading (staff, exchange students, someone who repeated a year). Clear all three fields to go back to the derived values.
+- **Super admins:** keep two or three. The last one cannot be removed.
+- **Audit log:** every change, with who made it.
+
+Changes reach the apps on the next request. From a script: `core roles set APP EMAIL [ROLE...]`.
+
+When handing over in June: add next year's super admins first, then remove your own entry.
+
 ## Signing keys
 
 Core creates an Ed25519 key in its database on first start and publishes it in the JWKS. Rotation

@@ -45,13 +45,14 @@ type Config struct {
 type Server struct {
 	cfg   Config
 	cache sessionCache
+	ids   identityCache
 }
 
 func New(cfg Config) *Server {
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
 	}
-	return &Server{cfg: cfg, cache: sessionCache{m: map[string]cacheEntry{}}}
+	return &Server{cfg: cfg, cache: sessionCache{m: map[string]cacheEntry{}}, ids: identityCache{m: map[string]identityEntry{}}}
 }
 
 // Handler returns core's routes. In front of it, the gateway sends /auth/*, /platform/* and the
@@ -68,6 +69,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /auth/me", s.handleMe)
 	mux.HandleFunc("GET /auth/.well-known/jwks.json", s.handleJWKS)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
+	s.apiRoutes(mux)
+	s.adminRoutes(mux)
 	mux.HandleFunc("GET /{$}", s.handleHome)
 	mux.HandleFunc("/", s.handleNotFound)
 	return mux

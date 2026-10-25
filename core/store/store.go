@@ -61,6 +61,53 @@ CREATE TABLE IF NOT EXISTS signing_keys (
 	private_key BLOB NOT NULL, -- PKCS#8 DER
 	created_at  INTEGER NOT NULL
 );
+
+-- Roles and admins are keyed by email, so they can be granted before someone first signs in.
+CREATE TABLE IF NOT EXISTS super_admins (
+	email      TEXT PRIMARY KEY,
+	added_by   TEXT NOT NULL,
+	added_at   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS app_admins (
+	app_id     TEXT NOT NULL,
+	email      TEXT NOT NULL,
+	added_by   TEXT NOT NULL,
+	added_at   INTEGER NOT NULL,
+	PRIMARY KEY (app_id, email)
+);
+
+CREATE TABLE IF NOT EXISTS role_grants (
+	app_id     TEXT NOT NULL,
+	email      TEXT NOT NULL,
+	role       TEXT NOT NULL,
+	granted_by TEXT NOT NULL,
+	granted_at INTEGER NOT NULL,
+	PRIMARY KEY (app_id, email, role)
+);
+CREATE INDEX IF NOT EXISTS role_grants_app ON role_grants (app_id, email);
+
+-- Super-admin corrections to the attributes derived from an email. Empty means "derive".
+CREATE TABLE IF NOT EXISTS attribute_overrides (
+	email       TEXT PRIMARY KEY,
+	affiliation TEXT NOT NULL DEFAULT '',
+	programme   TEXT NOT NULL DEFAULT '',
+	batch       INTEGER NOT NULL DEFAULT 0,
+	note        TEXT NOT NULL DEFAULT '',
+	updated_by  TEXT NOT NULL,
+	updated_at  INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+	id      INTEGER PRIMARY KEY AUTOINCREMENT,
+	at      INTEGER NOT NULL,
+	actor   TEXT NOT NULL,
+	action  TEXT NOT NULL,
+	app_id  TEXT NOT NULL DEFAULT '',
+	target  TEXT NOT NULL DEFAULT '',
+	detail  TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS audit_log_app ON audit_log (app_id, at);
 `
 
 // Open opens (and creates if needed) the database at path.

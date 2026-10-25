@@ -20,6 +20,7 @@ type pageData struct {
 	Switch       bool
 	Google       bool
 	MemberDomain string
+	Wide         bool
 }
 
 // Plain server-rendered pages: no JS, so the gateway's default CSP (no inline scripts) applies.
@@ -31,7 +32,11 @@ var pages = template.Must(template.New("").Parse(`
 :root{color-scheme:light dark;--fg:#1d1d1f;--muted:#6e6e73;--bg:#fafafa;--card:#fff;--line:#e3e3e6;--accent:#8a1538}
 @media (prefers-color-scheme:dark){:root{--fg:#f2f2f2;--muted:#a1a1a6;--bg:#141416;--card:#1e1e21;--line:#333338;--accent:#e0577f}}
 body{margin:0;font:16px/1.5 system-ui,sans-serif;color:var(--fg);background:var(--bg)}
-main{max-width:30rem;margin:3rem auto;padding:0 1rem}
+main{max-width:30rem;margin:3rem auto;padding:0 1rem}main.wide{max-width:64rem}
+table{border-collapse:collapse;width:100%;font-size:.92rem}th,td{text-align:left;padding:.45rem .5rem;border-bottom:1px solid var(--line);vertical-align:top}th{font-weight:600;color:var(--muted)}
+.inline{display:inline-flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:0}.inline input[type=email],.inline input[type=text],.inline input[type=number],.inline select{width:auto;min-width:14rem}
+.chk{display:inline-flex;gap:.25rem;align-items:center;margin:0 .5rem 0 0;font-size:.9rem}.chk input{width:auto}.btn.sm{padding:.3rem .7rem;font-size:.85rem}
+.note{padding:.6rem .8rem;border-radius:8px;background:var(--bg);border:1px solid var(--line);margin:.75rem 0}.err{border-color:var(--accent)}nav.admin{display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;font-size:.95rem}code{font-size:.85em}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:1.5rem}
 h1{font-size:1.4rem;margin:0 0 .75rem}p{margin:.5rem 0}.muted{color:var(--muted);font-size:.9rem}
 a{color:var(--accent)}ul{padding-left:1.2rem}
@@ -40,7 +45,7 @@ a{color:var(--accent)}ul{padding-left:1.2rem}
 form{margin:1rem 0}label{display:block;margin:.5rem 0 .2rem;font-size:.9rem}
 input{width:100%;box-sizing:border-box;padding:.5rem;border:1px solid var(--line);border-radius:8px;font:inherit;background:var(--bg);color:var(--fg)}
 .row{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:1rem}.dev{border-top:1px dashed var(--line);margin-top:1.25rem;padding-top:.5rem}
-</style></head><body><main><div class="card">{{end}}
+</style></head><body><main{{if .Wide}} class="wide"{{end}}><div class="card">{{end}}
 {{define "bottom"}}</div></main></body></html>{{end}}
 
 {{define "login"}}{{template "top" .}}

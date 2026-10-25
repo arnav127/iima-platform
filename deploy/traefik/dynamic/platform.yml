@@ -72,7 +72,7 @@ http:
       middlewares: [platform, to-404]
 
     core-auth:
-      rule: "Path(`/auth`) || PathPrefix(`/auth/`) || PathPrefix(`/platform/`)"
+      rule: "Path(`/auth`) || PathPrefix(`/auth/`) || PathPrefix(`/platform/`) || Path(`/admin`) || PathPrefix(`/admin/`)"
       priority: 1000
       service: core
       middlewares: [platform]

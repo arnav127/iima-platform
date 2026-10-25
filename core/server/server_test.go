@@ -56,7 +56,7 @@ func newEnv(t *testing.T, devLogin bool) *env {
 		t.Fatal(err)
 	}
 	reg, err := registry.New(
-		&registry.App{ID: "demo", Name: "Demo", Path: "/demo", Shape: "go", Login: "iima", Auth: "optional"},
+		&registry.App{ID: "demo", Name: "Demo", Path: "/demo", Shape: "go", Login: "iima", Auth: "optional", Roles: []string{"admin", "writer"}},
 		&registry.App{ID: "demo-external", Name: "Demo ext", Path: "/demo-external", Shape: "go", Login: "external", Auth: "optional"},
 	)
 	if err != nil {

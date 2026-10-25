@@ -1,5 +1,14 @@
 // Command core runs the platform's identity service. Configuration comes from the environment;
 // see the README and the env() calls below.
+//
+//	core                                      serve
+//	core superadmin add|remove EMAIL          bootstrap or change super admins
+//	core superadmin list
+//	core roles set APP EMAIL [ROLE...]        no roles removes them all
+//	core roles list APP
+//
+// The admin commands use the same CORE_DATA and REGISTRY as the server, and are logged in the
+// audit log as "cli".
 package main
 
 import (
@@ -12,6 +21,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -22,12 +32,98 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		if err := command(os.Args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "core:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	slog.SetDefault(log)
 	if err := run(log); err != nil {
 		log.Error("core stopped", "err", err)
 		os.Exit(1)
 	}
+}
+
+const usage = `usage:
+  core                                 serve
+  core superadmin add|remove EMAIL
+  core superadmin list
+  core roles set APP EMAIL [ROLE...]
+  core roles list APP`
+
+// command runs one admin command against the database, without starting the server.
+func command(args []string) error {
+	ctx := context.Background()
+	if err := os.MkdirAll(env("CORE_DATA", "data"), 0o700); err != nil {
+		return err
+	}
+	st, err := store.Open(filepath.Join(env("CORE_DATA", "data"), "core.db"))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	switch {
+	case len(args) == 2 && args[0] == "superadmin" && args[1] == "list":
+		admins, err := st.SuperAdmins(ctx)
+		if err != nil {
+			return err
+		}
+		for _, a := range admins {
+			fmt.Println(a.Email)
+		}
+		return nil
+	case len(args) == 3 && args[0] == "superadmin" && (args[1] == "add" || args[1] == "remove"):
+		email := store.NormEmail(args[2])
+		if !strings.Contains(email, "@") {
+			return fmt.Errorf("not an email: %s", args[2])
+		}
+		if args[1] == "add" {
+			err = st.AddSuperAdmin(ctx, "cli", email)
+		} else {
+			err = st.RemoveSuperAdmin(ctx, "cli", email)
+		}
+		if err == nil {
+			fmt.Printf("%s: %s %s\n", args[1], email, "done")
+		}
+		return err
+	case len(args) >= 3 && args[0] == "roles":
+		reg, err := registry.LoadDirs(strings.Split(env("REGISTRY", "apps"), ",")...)
+		if err != nil {
+			return err
+		}
+		app := reg.ByID(args[2])
+		if app == nil {
+			return fmt.Errorf("no app %q in the registry", args[2])
+		}
+		switch {
+		case args[1] == "list" && len(args) == 3:
+			grants, err := st.Grants(ctx, app.ID)
+			if err != nil {
+				return err
+			}
+			for _, g := range grants {
+				fmt.Printf("%s\t%s\n", g.Email, strings.Join(g.Roles, ","))
+			}
+			return nil
+		case args[1] == "set" && len(args) >= 4:
+			email := store.NormEmail(args[3])
+			for _, r := range args[4:] {
+				if !slices.Contains(app.Roles, r) {
+					return fmt.Errorf("role %q is not declared in %s's app.toml (declared: %s)", r, app.ID, strings.Join(app.Roles, ", "))
+				}
+			}
+			if err := st.SetRoles(ctx, "cli", app.ID, email, args[4:]); err != nil {
+				return err
+			}
+			fmt.Printf("%s in %s: %s\n", email, app.ID, strings.Join(args[4:], ","))
+			return nil
+		}
+	}
+	return errors.New(usage)
 }
 
 func run(log *slog.Logger) error {
