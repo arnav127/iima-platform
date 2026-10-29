@@ -41,7 +41,7 @@ type dashStats struct {
 
 type portalRow struct {
 	ID, Name, Path, Repo, Status, Review string
-	Waiting                      bool // has settings waiting for approval
+	Waiting                              bool // has settings waiting for approval
 }
 
 var adminPages = template.Must(template.Must(pages.Clone()).Funcs(template.FuncMap{
