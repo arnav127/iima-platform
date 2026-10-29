@@ -7,7 +7,8 @@ Sign-in, roles, backups and deploys come with it.
 
 1. **Start from a template** in this repo: `template/go-pocketbase` (Go + PocketBase + Preact),
    `template/next` (Next.js) or `template/python` (FastAPI). Next.js and Python apps can have
-   PocketBase beside them (`pocketbase = true`). Copy one into your own GitHub repo.
+   PocketBase beside them (`pocketbase = true`), and a Next.js app can have a Python backend beside it
+   (`backend = "main:app"`, code in `backend/`, reached at `BACKEND_URL`). Copy one into your own GitHub repo.
 2. **Fill in `app.toml`**: an `id`, a `path` like `/quiz`, and your @iima.ac.in email in `owners`
    (that is how the platform knows you may deploy the repo). Keep `.github/workflows/deploy.yml`:
    on every push to `main` it builds your app and publishes a release `build-<commit>`.

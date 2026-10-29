@@ -240,7 +240,7 @@ Everything Auxesis and Garba each wrote by hand:
 A small helper (PyJWT with the JWKS) for FastAPI: `user = iima_user(request)`. Only Portfolio League needs it today.
 
 ### App template
-In this repo, built and tested by CI so they never rot: `template/go-pocketbase` (lifted from Auxesis: Vite + Preact frontend, `iimakit/pb` backend), `template/next` (Next.js, PocketBase behind the server) and `template/python` (FastAPI with `kit-py`). A new app copies one. Next.js and Python apps get the platform's pinned PocketBase as a sidecar with `pocketbase = true`.
+In this repo, built and tested by CI so they never rot: `template/go-pocketbase` (lifted from Auxesis: Vite + Preact frontend, `iimakit/pb` backend), `template/next` (Next.js, PocketBase behind the server) and `template/python` (FastAPI with `kit-py`). A new app copies one. Next.js and Python apps get the platform's pinned PocketBase as a sidecar with `pocketbase = true`, and a Next.js app can have a Python (ASGI) backend beside it with `backend = "main:app"`: a loopback sidecar the Next server reaches at `BACKEND_URL`, which checks the forwarded `X-User-Token` itself (Portfolio League's FastAPI).
 
 ### Apps' own role screens
 Beta and Garba manage roles from their own People screens. `manager_role` in `app.toml` lets the holders of that app role manage the app's roles on the platform (like app admins, for that app only). The screen calls `@iima/kit`'s `setRoles` (the platform API, with the person's own session), then saves the app's copy as before; the app's `role` field is a mirror that `Access` overwrites from the token on every request.
