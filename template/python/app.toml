@@ -1,0 +1,14 @@
+# This app's settings for the platform. The deploy portal reads it when you connect the repo; after
+# that, change settings on the app's page in the portal. See ARCHITECTURE.md for every field.
+id     = "mypyapp"                 # also the token's aud and the Nomad job name
+name   = "My Python App"
+path   = "/mypyapp"
+owners = ["you@iima.ac.in"]        # who may deploy it; reviewed every term
+review = "2027-03-31"
+shape  = "python"
+entry  = "main:app"                # the ASGI app uvicorn serves
+login  = "iima"
+auth   = "optional"
+roles  = ["admin"]
+public = ["/health"]
+memory = 256

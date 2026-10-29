@@ -77,6 +77,7 @@ are the steps that need the campus servers. Runbook: `docs/cluster.md`.
 - [ ] Before BetaMarkets moves: new VAPID keys if the old private key was ever public (it was in the code), run its `platform-roles` output
 - [ ] Port **Portfolio League** (Supabase is gone from the code; only its README, `schema.sql` and old SQL migrations mention it)
 - [x] Next.js app template (`template/next`), built and type-checked in CI
+- [x] Python apps: shape `python` (uvicorn, dependencies installed by the build for the cluster's Python), optional PocketBase sidecar, `template/python` (FastAPI + `kit-py`) tested in CI
 
 ## Phase 7: shared services
 - [ ] Postgres (shared, for core and Inngest); move core to Postgres with 2 instances

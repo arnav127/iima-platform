@@ -112,7 +112,7 @@ var deployPages = template.Must(template.Must(adminPages.Clone()).Funcs(template
 <div><label>Memory (MB)</label><input name="memory" type="number" min="64" max="4096" value="{{if .Memory}}{{.Memory}}{{else}}256{{end}}"></div>
 <div><label>Review date</label><input name="review" type="date" value="{{.Review}}"><div class="hint">When the owners check the app is still needed.</div></div>
 </div><label class="chk" style="margin-top:1rem"><input type="checkbox" name="realtime" value="1"{{if .Realtime}} checked{{end}}> Uses realtime (long-lived connections)</label>
-<label class="chk"><input type="checkbox" name="pocketbase" value="1"{{if .PocketBase}} checked{{end}}> Next.js: run PocketBase beside the app (data kept on its own volume)</label>
+<label class="chk"><input type="checkbox" name="pocketbase" value="1"{{if .PocketBase}} checked{{end}}> Next.js or Python: run PocketBase beside the app (data kept on its own volume)</label>
 <div class="row"><button class="btn" type="submit">Save settings</button></div>
 <p class="hint">Changes to the path, who may sign in, signed-out visitors, public paths or shape wait for a super admin. The rest applies now.</p>
 </form>{{end}}</div>
@@ -245,7 +245,7 @@ func (s *Server) portalRoutes(mux *http.ServeMux) {
 			return
 		}
 		ctx := r.Context()
-		d := deployData{Title: pa.ID, Actor: a, App: pa, Shapes: []string{"go-pocketbase", "go", "next"}}
+		d := deployData{Title: pa.ID, Actor: a, App: pa, Shapes: []string{"go-pocketbase", "go", "next", "python"}}
 		d.Message, d.Error = flash(r)
 		d.Live, d.Pending = p.Settings(pa)
 		d.Form = d.Live

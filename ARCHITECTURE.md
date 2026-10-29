@@ -223,7 +223,7 @@ Everything Auxesis and Garba each wrote by hand:
 A small helper (PyJWT with the JWKS) for FastAPI: `user = iima_user(request)`. Only Portfolio League needs it today.
 
 ### App template
-`template/go-pocketbase` in this repo (built and type-checked by CI, so it never rots), lifted from Auxesis: Vite + Preact frontend, `iimakit/pb` backend, `app.toml`. A new app copies the folder. A second template for Next.js (phase 6). Two supported paths, no more.
+In this repo, built and tested by CI so they never rot: `template/go-pocketbase` (lifted from Auxesis: Vite + Preact frontend, `iimakit/pb` backend), `template/next` (Next.js, PocketBase behind the server) and `template/python` (FastAPI with `kit-py`). A new app copies one. Next.js and Python apps get the platform's pinned PocketBase as a sidecar with `pocketbase = true`.
 
 ### Apps' own role screens
 Beta and Garba manage roles from their own People screens. `manager_role` in `app.toml` lets the holders of that app role manage the app's roles on the platform (like app admins, for that app only). The screen calls `@iima/kit`'s `setRoles` (the platform API, with the person's own session), then saves the app's copy as before; the app's `role` field is a mirror that `Access` overwrites from the token on every request.

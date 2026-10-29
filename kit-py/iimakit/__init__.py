@@ -27,6 +27,11 @@ from typing import Any, Mapping
 
 import jwt
 
+try:  # FastAPI finds the request by this annotation; nothing else needs Starlette
+    from starlette.requests import Request as _Request
+except ImportError:  # pragma: no cover
+    _Request = Any  # type: ignore[misc,assignment]
+
 __all__ = ["Claims", "TokenError", "Verifier", "TOKEN_HEADER", "dev_claims"]
 
 TOKEN_HEADER = "x-user-token"  # browsers can never set it: the gateway strips it first
@@ -125,7 +130,7 @@ class Verifier:
             raise TokenError("token issued in the future")
         return Claims.from_payload(p)
 
-    def user(self, request: Any) -> Claims | None:
+    def user(self, request: _Request) -> Claims | None:
         """The signed-in user, or None. Rejected tokens are logged, never trusted. With
         IIMA_DEV_USER set and no token (off the cluster only), a fake user."""
         token = _header(request, TOKEN_HEADER)
@@ -137,7 +142,7 @@ class Verifier:
             log.warning("iimakit: rejected token: %s", e)
             return None
 
-    def require_user(self, request: Any) -> Claims:
+    def require_user(self, request: _Request) -> Claims:
         """FastAPI dependency: the user, or a 401."""
         u = self.user(request)
         if u is None:

@@ -5,8 +5,9 @@ Sign-in, roles, backups and deploys come with it.
 
 ## For app owners
 
-1. **Start from a template** in this repo: `template/go-pocketbase` (Go + PocketBase + Preact) or
-   `template/next` (Next.js, with PocketBase beside it if you want). Copy it into your own GitHub repo.
+1. **Start from a template** in this repo: `template/go-pocketbase` (Go + PocketBase + Preact),
+   `template/next` (Next.js) or `template/python` (FastAPI). Next.js and Python apps can have
+   PocketBase beside them (`pocketbase = true`). Copy one into your own GitHub repo.
 2. **Fill in `app.toml`**: an `id`, a `path` like `/quiz`, and your @iima.ac.in email in `owners`
    (that is how the platform knows you may deploy the repo). Keep `.github/workflows/deploy.yml`:
    on every push to `main` it builds your app and publishes a release `build-<commit>`.
@@ -25,7 +26,7 @@ On the app's page (`/admin/apps/<id>/deploy`):
 | Owners | Owners deploy, change settings, and manage roles. Add next year's team before you leave. |
 | Logs | The end of the running copy's output. |
 
-Next.js apps with `pocketbase = true` need two secrets, `PB_ADMIN_EMAIL` and `PB_ADMIN_PASSWORD`:
+Apps with `pocketbase = true` need two secrets, `PB_ADMIN_EMAIL` and `PB_ADMIN_PASSWORD`:
 PocketBase creates that superuser on start and the app uses it.
 
 `NEXT_PUBLIC_*` values are built into the page, so set them as GitHub repository variables for
@@ -49,7 +50,7 @@ the build, not here.
 go run ./dev/cmd/devstack -nomad -portal
 ```
 
-This starts a fake GitHub with two demo repos (the two templates, already built). Sign in as
-`you@iima.ac.in`, connect `iima-clubs/myapp` or `iima-clubs/mynextapp`, then sign in as
+This starts a fake GitHub with three demo repos (the templates, already built). Sign in as
+`you@iima.ac.in`, connect `iima-clubs/myapp`, `iima-clubs/mynextapp` or `iima-clubs/mypyapp`, then sign in as
 `admin@iima.ac.in` (switch account) and approve. For the Next.js one, set the two `PB_ADMIN_*` secrets
 first.

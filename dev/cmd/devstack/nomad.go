@@ -81,7 +81,7 @@ func runNomad(s nomadSetup) error {
 		toml := fmt.Sprintf("datacenter = %q\ndriver = %q\npublic_url = %q\njwks_url = %q\nlocal_data_root = %q\n",
 			cluster.Datacenter, cluster.Driver, cluster.PublicURL, cluster.JWKSURL, filepath.ToSlash(cluster.LocalDataRoot))
 		if runtime.GOOS == "windows" {
-			toml += `binary_suffix = ".exe"` + "\n"
+			toml += `binary_suffix = ".exe"` + "\n" + `python = "python"` + "\n"
 		}
 		var closeGH func()
 		if portalEnv, closeGH, err = portalDemo(s, toml); err != nil {
@@ -152,7 +152,7 @@ func runNomad(s nomadSetup) error {
 	}
 	fmt.Println("    Nomad UI: http://127.0.0.1:4646/ui   Logs: .dev\\bin\\nomad alloc logs -job <id>")
 	if s.portal {
-		fmt.Println("    Portal: sign in as " + demoOwner + " and connect " + demoRepo + " or " + demoNextRepo)
+		fmt.Println("    Portal: sign in as " + demoOwner + " and connect " + demoRepo + ", " + demoNextRepo + " or " + demoPyRepo)
 		fmt.Println("    at http://localhost:8080/admin/apps/new, then approve as " + demoSuper + ".")
 	}
 	fmt.Println("    Ctrl+C to stop.")

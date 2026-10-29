@@ -108,8 +108,8 @@ func TestJobRefusals(t *testing.T) {
 	if _, err := Build(cluster, noVol, release); err == nil {
 		t.Error("PocketBase app without a volume accepted")
 	}
-	if _, err := Build(cluster, app2(t, "python"), release); err == nil {
-		t.Error("python shape accepted before it is supported")
+	if _, err := Build(cluster, app2(t, "pocketbase"), release); err == nil {
+		t.Error("pocketbase shape accepted before it is supported")
 	}
 }
 
@@ -197,4 +197,28 @@ volume = "betamarkets-data"
 
 func app2(t *testing.T, shape string) *registry.App {
 	return app(t, "id = \"web\"\nname = \"W\"\npath = \"/web\"\nshape = \""+shape+"\"\n")
+}
+
+func TestPython(t *testing.T) {
+	a := app(t, "id = \"api\"\nname = \"API\"\npath = \"/api-demo\"\nshape = \"python\"\nentry = \"server:app\"\n")
+	rel := Release{Version: "build-1", ArtifactURL: "http://core/platform/artifacts/x.tar.gz", SHA256: strings.Repeat("c", 64)}
+	j, err := Build(Cluster{Datacenter: "dc1", Driver: "exec", PublicURL: "https://students.iima.ac.in"}, a, rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := j.TaskGroups[0].Tasks[0]
+	args := task.Config["args"].([]string)
+	if task.Config["command"] != "python3" || args[2] != "server:app" || task.Env["PYTHONPATH"] != "local/app:local/site" {
+		t.Fatalf("python task: %v %v", task.Config, task.Env)
+	}
+	if j.TaskGroups[0].Services[0].Checks[0].Path != "/health" {
+		t.Fatal("python apps are stripped: health at /health")
+	}
+	strip := false
+	for _, tag := range j.TaskGroups[0].Services[0].Tags {
+		strip = strip || strings.Contains(tag, "stripprefix")
+	}
+	if !strip {
+		t.Fatal("python apps should be stripped")
+	}
 }

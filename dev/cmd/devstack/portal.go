@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/arnav127/iima-platform/core/github/githubtest"
@@ -24,6 +25,7 @@ import (
 const (
 	demoRepo     = "iima-clubs/myapp"     // template/go-pocketbase, at /myapp
 	demoNextRepo = "iima-clubs/mynextapp" // template/next, at /mynextapp
+	demoPyRepo   = "iima-clubs/mypyapp"   // template/python, at /mypyapp
 	demoOwner    = "you@iima.ac.in"
 	demoSuper    = "admin@iima.ac.in"
 )
@@ -34,7 +36,7 @@ func portalDemo(s nomadSetup, cluster string) (env map[string]string, stop func(
 		gh.Close()
 		return nil, nil, err
 	}
-	for repo, build := range map[string]func(nomadSetup) ([]byte, string, error){demoRepo: buildGoTemplate, demoNextRepo: buildNextTemplate} {
+	for repo, build := range map[string]func(nomadSetup) ([]byte, string, error){demoRepo: buildGoTemplate, demoNextRepo: buildNextTemplate, demoPyRepo: buildPythonTemplate} {
 		step("building " + repo + "'s first release")
 		artifact, dir, err := build(s)
 		if err != nil {
@@ -44,10 +46,7 @@ func portalDemo(s nomadSetup, cluster string) (env map[string]string, stop func(
 		if err != nil {
 			return fail(err)
 		}
-		inst := int64(1)
-		if repo == demoNextRepo {
-			inst = 2
-		}
+		inst := map[string]int64{demoRepo: 1, demoNextRepo: 2, demoPyRepo: 3}[repo]
 		gh.AddRepo(repo, inst, map[string][]byte{"app.toml": toml})
 		gh.AddRelease(repo, "build-0000001", strings.Repeat("0", 39)+"1", artifact)
 	}
@@ -137,6 +136,29 @@ func buildNextTemplate(s nomadSetup) ([]byte, string, error) {
 	}
 	b, err := pack(entries)
 	return b, tmpl, err
+}
+
+// buildPythonTemplate packs template/python like the workflow: the code in ./app and its
+// dependencies (iimakit included), installed for this machine's Python, in ./site.
+func buildPythonTemplate(s nomadSetup) ([]byte, string, error) {
+	tmpl := filepath.Join(s.root, "template", "python")
+	site := filepath.Join(s.dev, "pysite")
+	if err := os.RemoveAll(site); err != nil {
+		return nil, "", err
+	}
+	if err := runIn(tmpl, nil, pythonCmd(), "-m", "pip", "install", "-q", "--target", site, "-r", "requirements.txt", filepath.Join(s.root, "kit-py")); err != nil {
+		return nil, "", fmt.Errorf("Python template dependencies: %w", err)
+	}
+	b, err := pack([]entry{{"app/main.py", filepath.Join(tmpl, "main.py")}, {"site", site}})
+	return b, tmpl, err
+}
+
+// pythonCmd is the Python on this machine: "python" on Windows, "python3" elsewhere.
+func pythonCmd() string {
+	if runtime.GOOS == "windows" {
+		return "python"
+	}
+	return "python3"
 }
 
 // entry is one thing in the artifact: a file or directory from disk, or (when src does not exist

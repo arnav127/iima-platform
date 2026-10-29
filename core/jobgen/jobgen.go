@@ -31,6 +31,17 @@ type Cluster struct {
 	BinarySuffix string `toml:"binary_suffix"`
 	// Node is the Node.js binary on every client, for Next.js apps (default "node" on the PATH).
 	Node string `toml:"node"`
+	// Python is the Python on every client, for Python apps (default "python3"). Builds install
+	// dependencies for the same minor version (the build workflow's python-version).
+	Python string `toml:"python"`
+}
+
+// pathSep separates PYTHONPATH entries: ";" for a local Nomad on Windows.
+func (c Cluster) pathSep() string {
+	if c.BinarySuffix == ".exe" {
+		return ";"
+	}
+	return ":"
 }
 
 // Release is one build of an app: a tar.gz with the binary at ./app and, for PocketBase apps,
@@ -51,6 +62,7 @@ var healthPath = map[string]string{
 	"go-pocketbase": "/api/health",
 	"go":            "/health",
 	"next":          "/api/health", // under the app's path: Next keeps its basePath
+	"python":        "/health",
 }
 
 const ()
@@ -59,7 +71,7 @@ const ()
 func Build(c Cluster, app *registry.App, rel Release) (*Job, error) {
 	health, ok := healthPath[app.Shape]
 	if !ok {
-		return nil, fmt.Errorf("jobgen: shape %q is not supported yet (go-pocketbase, go and next are)", app.Shape)
+		return nil, fmt.Errorf("jobgen: shape %q is not supported yet (go-pocketbase, go, next and python are)", app.Shape)
 	}
 	if app.Shape == "next" && !app.IsRoot() {
 		health = app.Path + health
@@ -162,29 +174,41 @@ func Build(c Cluster, app *registry.App, rel Release) (*Job, error) {
 		task.Env["PORT"] = "${NOMAD_PORT_http}"
 		task.Env["HOSTNAME"] = "${NOMAD_IP_http}"
 		task.Env["NODE_ENV"] = "production"
-		if app.PocketBase {
-			// The platform's PocketBase beside it, on loopback only: the Next server is its only
-			// client. It starts first and runs as long as the app (a sidecar).
-			pb := &Task{
-				Name: "pocketbase", Driver: c.Driver, Env: map[string]string{},
-				Lifecycle:   &Lifecycle{Hook: "prestart", Sidecar: true},
-				Resources:   &Resources{CPU: 100, MemoryMB: 128},
-				KillTimeout: dur(10 * time.Second),
-				Artifacts:   task.Artifacts,
-				Templates:   task.Templates, // PB_ADMIN_EMAIL and PB_ADMIN_PASSWORD bootstrap its superuser
-			}
-			dir, err := data(pb)
-			if err != nil {
-				return nil, err
-			}
-			pb.Config = map[string]any{"command": "local/pocketbase" + c.BinarySuffix, "args": []string{
-				"serve", "--http", "127.0.0.1:${NOMAD_PORT_pb}", "--dir", dir,
-				"--migrationsDir", "local/pb_migrations", "--hooksDir", "local/pb_hooks",
-			}}
-			tg.Networks[0].DynamicPorts = append(tg.Networks[0].DynamicPorts, Port{Label: "pb"})
-			task.Env["POCKETBASE_URL"] = "http://127.0.0.1:${NOMAD_PORT_pb}"
-			tg.Tasks = []*Task{pb, task}
+	case "python":
+		if local {
+			return nil, errors.New("jobgen: Python apps run from a release, not a local command")
 		}
+		// uvicorn serving the ASGI app; the code is in local/app and its dependencies, installed by
+		// the build, in local/site. The gateway strips the path, as for Go apps.
+		task.Config = map[string]any{"command": orStr(c.Python, "python3"), "args": []string{
+			"-m", "uvicorn", orStr(app.Entry, "main:app"), "--host", "${NOMAD_IP_http}", "--port", "${NOMAD_PORT_http}",
+		}}
+		task.Env["PYTHONPATH"] = "local/app" + c.pathSep() + "local/site"
+		task.Env["PYTHONUNBUFFERED"] = "1"
+	}
+
+	if app.PocketBase {
+		// The platform's PocketBase beside the app, on loopback only: the app's server is its only
+		// client. It starts first and runs as long as the app (a sidecar).
+		pb := &Task{
+			Name: "pocketbase", Driver: c.Driver, Env: map[string]string{},
+			Lifecycle:   &Lifecycle{Hook: "prestart", Sidecar: true},
+			Resources:   &Resources{CPU: 100, MemoryMB: 128},
+			KillTimeout: dur(10 * time.Second),
+			Artifacts:   task.Artifacts,
+			Templates:   task.Templates, // PB_ADMIN_EMAIL and PB_ADMIN_PASSWORD bootstrap its superuser
+		}
+		dir, err := data(pb)
+		if err != nil {
+			return nil, err
+		}
+		pb.Config = map[string]any{"command": "local/pocketbase" + c.BinarySuffix, "args": []string{
+			"serve", "--http", "127.0.0.1:${NOMAD_PORT_pb}", "--dir", dir,
+			"--migrationsDir", "local/pb_migrations", "--hooksDir", "local/pb_hooks",
+		}}
+		tg.Networks[0].DynamicPorts = append(tg.Networks[0].DynamicPorts, Port{Label: "pb"})
+		task.Env["POCKETBASE_URL"] = "http://127.0.0.1:${NOMAD_PORT_pb}"
+		tg.Tasks = []*Task{pb, task}
 	}
 
 	return &Job{

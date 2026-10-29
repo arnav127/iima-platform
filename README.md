@@ -55,7 +55,7 @@ templates as demo repos: connect one, approve it, and it deploys. See [docs/port
 ## Host an app
 
 Owners connect a GitHub repo at `/admin/apps/new`; every push to `main` builds and deploys once a
-super admin has approved the app. Start from `template/go-pocketbase` or `template/next`. Guide:
+super admin has approved the app. Start from `template/go-pocketbase`, `template/next` or `template/python`. Guide:
 [docs/portal.md](docs/portal.md).
 
 ## Layout
@@ -67,7 +67,7 @@ super admin has approved the app. Start from `template/go-pocketbase` or `templa
 | `kit/pb/` | `iimakit/pb`: puts a Go + PocketBase app behind the platform (`pb.New`). Its own Go module. |
 | `kit-js/` | `@iima/kit` for frontends: `api`, `me`, `login`, `logout`, router, stores. `@iima/kit/next`: `getUser()` for Next.js servers. |
 | `pocketbase/` | The platform's build of stock PocketBase (pinned version) for apps that run it next to a Next.js or Python server. |
-| `template/` | `go-pocketbase` and `next`: the two starting points for a new app, built in CI. |
+| `template/` | `go-pocketbase`, `next` and `python`: the starting points for a new app, built and tested in CI. |
 | `kit-py/` | `iimakit` for Python (FastAPI): `Verifier(app).user(request)`, `require_user`. |
 | `apps/` | One `app.toml` per app: the registry. |
 | `deploy/traefik/` | Gateway config and the `platformstrip` plugin. |

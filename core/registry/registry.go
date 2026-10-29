@@ -42,6 +42,8 @@ type App struct {
 	// PocketBase runs the platform's PocketBase beside a Next.js app, on loopback, with its data on
 	// Volume. The app's server is its only client (ARCHITECTURE.md: standalone PocketBase).
 	PocketBase bool `toml:"pocketbase"`
+	// Entry is a Python app's ASGI app, as uvicorn takes it (default "main:app").
+	Entry string `toml:"entry"`
 
 	File string `toml:"-"` // where it was loaded from, for error messages
 }
@@ -195,8 +197,8 @@ func (a *App) validate() error {
 		return fmt.Errorf("auth %q: must be %q or %q", a.Auth, AuthOptional, AuthRequired)
 	case !slices.Contains(shapes, a.Shape):
 		return fmt.Errorf("shape %q: must be one of %s", a.Shape, strings.Join(shapes, ", "))
-	case a.PocketBase && a.Shape != "next":
-		return fmt.Errorf("pocketbase = true is for Next.js apps; Go apps build PocketBase in (shape go-pocketbase)")
+	case a.PocketBase && a.Shape != "next" && a.Shape != "python":
+		return fmt.Errorf("pocketbase = true is for Next.js and Python apps; Go apps build PocketBase in (shape go-pocketbase)")
 	case a.ManagerRole != "" && !slices.Contains(a.Roles, a.ManagerRole):
 		return fmt.Errorf("manager_role %q must be one of the declared roles", a.ManagerRole)
 	}

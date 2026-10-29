@@ -7,8 +7,10 @@
 # What app.tar.gz holds, by shape (app.toml):
 #   go-pocketbase  ./app (Linux binary), ./pb_public (the built frontend)
 #   go             ./app
-#   next           ./app/server.js (Next's standalone server), and with pocketbase = true also
-#                  ./pocketbase (the platform's pinned build), ./pb_migrations, ./pb_hooks
+#   next           ./app/server.js (Next's standalone server)
+#   python         ./app (the code) and ./site (its dependencies, iimakit included)
+#   with pocketbase = true (next, python) also ./pocketbase (the platform's pinned build),
+#   ./pb_migrations and ./pb_hooks
 name: build-app
 
 on:
@@ -26,6 +28,10 @@ on:
         description: Next.js apps, the folder with package.json and next.config
         type: string
         default: "."
+      python-version:
+        description: Python apps, the cluster's Python (dependencies are installed for it)
+        type: string
+        default: "3.12"
       platform-ref:
         description: Which iima-platform commit to build the kits and PocketBase from
         type: string
@@ -74,7 +80,7 @@ jobs:
 
       # ---- Go apps ----
       - name: Build the frontend
-        if: steps.app.outputs.shape != 'next' && hashFiles('app/package.json') != ''
+        if: (steps.app.outputs.shape == 'go' || steps.app.outputs.shape == 'go-pocketbase') && hashFiles('app/package.json') != ''
         working-directory: app
         env:
           VITE_BASE: ${{ steps.app.outputs.base }}
@@ -83,7 +89,7 @@ jobs:
           npm audit --omit=dev --audit-level=high
           npm run build
       - name: Test and build the backend
-        if: steps.app.outputs.shape != 'next'
+        if: steps.app.outputs.shape == 'go' || steps.app.outputs.shape == 'go-pocketbase'
         working-directory: app/${{ inputs.backend-dir }}
         env:
           GOWORK: "off"
@@ -117,8 +123,26 @@ jobs:
           cp -r .next/static "$GITHUB_WORKSPACE/dist/app/$sub/.next/static"
           if [ -d public ]; then cp -r public "$GITHUB_WORKSPACE/dist/app/$sub/public"; fi
           if [ "$sub" != "." ]; then echo "require('./$sub/server.js')" > "$GITHUB_WORKSPACE/dist/app/server.js"; fi
+      # ---- Python apps ----
+      - uses: actions/setup-python@v5
+        if: steps.app.outputs.shape == 'python'
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Test and package the Python app
+        if: steps.app.outputs.shape == 'python'
+        working-directory: app
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt ../iima-platform/kit-py pytest
+          if [ -d tests ]; then python -m pytest -q; fi
+          mkdir -p "$GITHUB_WORKSPACE/dist/site" "$GITHUB_WORKSPACE/dist/app"
+          # Dependencies for the cluster's Python (same minor version), next to the code.
+          python -m pip install --target "$GITHUB_WORKSPACE/dist/site" -r requirements.txt ../iima-platform/kit-py
+          tar -cf - --exclude=.git --exclude=.github --exclude=tests --exclude=.venv --exclude=__pycache__ \
+            --exclude=pb_migrations --exclude=pb_hooks . | tar -xf - -C "$GITHUB_WORKSPACE/dist/app"
+
       - name: Add the platform's PocketBase
-        if: steps.app.outputs.shape == 'next' && steps.app.outputs.pocketbase == 'true'
+        if: (steps.app.outputs.shape == 'next' || steps.app.outputs.shape == 'python') && steps.app.outputs.pocketbase == 'true'
         run: |
           (cd iima-platform/pocketbase && GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o "$GITHUB_WORKSPACE/dist/pocketbase" .)
           mkdir -p dist/pb_migrations dist/pb_hooks

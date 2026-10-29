@@ -3,3 +3,5 @@ datacenter = "iima"
 driver     = "exec"                         # isolated; Linux only
 public_url = "https://students.iima.ac.in"
 # jwks_url defaults to public_url + /auth/.well-known/jwks.json
+# node   = "node"     # Node.js for Next.js apps (setup.sh installs it on every client)
+# python = "python3"  # Python for Python apps: the same minor version as the build workflow's python-version
