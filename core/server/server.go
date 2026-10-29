@@ -81,6 +81,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /{$}", s.handleHome)
 	mux.HandleFunc("GET /platform/apps", s.handleHome) // the directory, also when a home app owns /
 	mux.HandleFunc("GET /platform/theme.js", s.handleThemeJS)
+	mux.HandleFunc("GET /platform/logo.svg", s.handleLogo)
 	mux.HandleFunc("/", s.handleNotFound)
 	return mux
 }

@@ -1,6 +1,7 @@
 package server
 
 import (
+	_ "embed"
 	"html/template"
 	"net/http"
 	"strings"
@@ -63,6 +64,7 @@ var pages = template.Must(template.New("").Funcs(pageFuncs).Parse(`
 {{define "top"}}<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} · IIMA Students</title>
+<link rel="icon" type="image/svg+xml" href="/platform/logo.svg">
 <script src="/platform/theme.js"></script>
 <style>
 :root{color-scheme:light;
@@ -92,6 +94,7 @@ p{margin:.45rem 0}.muted{color:var(--muted)}.small{font-size:.84rem}
 .bar{background:var(--side);border-bottom:1px solid var(--line)}
 .bar .in{max-width:72rem;margin:0 auto;padding:.65rem 1.25rem;display:flex;gap:1.25rem;align-items:center;flex-wrap:wrap}
 .brand{display:flex;gap:.55rem;align-items:center;font-weight:700;text-decoration:none}.brand:hover{text-decoration:none}
+.logo{display:block;width:40px;height:40px;padding:2px;background:#fff;border-radius:6px;box-shadow:0 0 0 1px var(--line)}
 .mark{height:28px;padding:0 .5rem;border-radius:3px;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center;font-size:.72rem;font-weight:800;letter-spacing:.06em;border:1.5px solid var(--rule)}
 .bar nav{display:flex;gap:1.1rem;flex:1;flex-wrap:wrap}.bar nav a{color:var(--muted);text-decoration:none}.bar nav a:hover{color:var(--fg)}
 .who{font-size:.86rem;color:var(--muted);display:flex;gap:.75rem;align-items:center}
@@ -166,7 +169,7 @@ input:focus,select:focus{outline:2px solid var(--accent);border-color:var(--rule
 .side nav .theme{padding:.42rem .6rem;width:100%;text-align:left}
 </style></head><body>
 {{if .Shell}}<div class="app">
-<aside class="side"><a class="title brand" href="/platform/apps"><span class="mark">IIMA</span>Students</a>
+<aside class="side"><a class="title brand" href="/platform/apps"><img class="logo" src="/platform/logo.svg" alt="IIM Ahmedabad" width="40" height="40">Students</a>
 <div class="seg"><a class="on" href="/admin">Admin</a><a href="/platform/apps">Site</a></div>
 <nav><a href="/admin"{{if eq .Title "Dashboard"}} class="on"{{end}}>{{template "icon" "dashboard"}}Dashboard{{with .WaitingCount}}<span class="count pill warn">{{.}} waiting</span>{{end}}</a>
 <a href="/admin/apps/new"{{if eq .Title "Connect an app"}} class="on"{{end}}>{{template "icon" "plus"}}Build an app</a>
@@ -179,7 +182,7 @@ input:focus,select:focus{outline:2px solid var(--accent);border-color:var(--rule
 <div class="me">{{.Who}}</div></aside>
 <main class="main">{{else}}
 <header class="bar"><div class="in">
-<a class="brand" href="/"><span class="mark">IIMA</span>Students</a>
+<a class="brand" href="/"><img class="logo" src="/platform/logo.svg" alt="IIM Ahmedabad" width="40" height="40">Students</a>
 <nav><a href="/platform/apps">Apps</a>{{if .Who}}<a href="/admin">Dashboard{{with .WaitingCount}} <span class="pill warn">{{.}} waiting</span>{{end}}</a><a href="/admin/apps/new">Build an app</a>{{end}}</nav>
 <div class="who"><button class="theme" type="button" data-theme-toggle title="Light / dark">{{template "icon" "theme"}}</button>{{if .Who}}<span>{{.Who}}</span><a href="/auth/logout">Sign out</a>{{else}}<a class="btn sm" href="/auth/login?rd=/admin">Sign in</a>{{end}}</div>
 </div></header>
@@ -269,6 +272,17 @@ const themeJS = `(function () {
   });
 })();
 `
+
+// The institute's logo (from Wikimedia, editor metadata removed), for the top bar, sidebar and favicon.
+//
+//go:embed static/iima-logo.svg
+var logoSVG []byte
+
+func (s *Server) handleLogo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(logoSVG)
+}
 
 func (s *Server) handleThemeJS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
