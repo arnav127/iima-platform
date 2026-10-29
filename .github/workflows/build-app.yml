@@ -44,11 +44,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: app
       # Apps point at ../iima-platform for the kits until they are published.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           repository: arnav127/iima-platform
           ref: ${{ inputs.platform-ref }}
@@ -68,10 +68,10 @@ jobs:
           print("pocketbase=" + str(a.get("pocketbase", False)).lower())
           EOF
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "24"
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.27.x"
           check-latest: true
@@ -124,7 +124,7 @@ jobs:
           if [ -d public ]; then cp -r public "$GITHUB_WORKSPACE/dist/app/$sub/public"; fi
           if [ "$sub" != "." ]; then echo "require('./$sub/server.js')" > "$GITHUB_WORKSPACE/dist/app/server.js"; fi
       # ---- Python apps ----
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         if: steps.app.outputs.shape == 'python'
         with:
           python-version: ${{ inputs.python-version }}
