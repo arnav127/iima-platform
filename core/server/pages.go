@@ -33,6 +33,9 @@ func (d pageData) Who() string {
 	return d.Session.User.Email
 }
 
+// WaitingCount is shown to super admins in the top bar; plain pages have no actor.
+func (d pageData) WaitingCount() int { return 0 }
+
 // Funcs shared by every page template.
 var pageFuncs = template.FuncMap{
 	// href links to an app: "/quiz/", or "/" for the home app (never "//", which is another host).
@@ -74,7 +77,7 @@ p{margin:.45rem 0}.muted{color:var(--muted)}.small{font-size:.86rem}
 .bar{background:var(--card);border-bottom:1px solid var(--line)}
 .bar .in{max-width:72rem;margin:0 auto;padding:.7rem 1.25rem;display:flex;gap:1.25rem;align-items:center;flex-wrap:wrap}
 .brand{display:flex;gap:.55rem;align-items:center;font-weight:650;color:var(--fg);letter-spacing:-.01em}.brand:hover{text-decoration:none}
-.mark{width:28px;height:28px;border-radius:8px;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center;font-size:.8rem;font-weight:700}
+.mark{height:28px;padding:0 .5rem;border-radius:8px;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center;font-size:.72rem;font-weight:750;letter-spacing:.06em}
 .bar nav{display:flex;gap:1rem;flex:1;flex-wrap:wrap}.bar nav a{color:var(--muted);font-size:.93rem}.bar nav a:hover{color:var(--fg);text-decoration:none}
 .who{font-size:.86rem;color:var(--muted);display:flex;gap:.75rem;align-items:center}
 
@@ -122,7 +125,7 @@ input:focus,select:focus{outline:2px solid var(--accent-soft);border-color:var(-
 </style></head><body>
 <header class="bar"><div class="in">
 <a class="brand" href="/"><span class="mark">IIMA</span>Students</a>
-<nav><a href="/platform/apps">Apps</a>{{if .Who}}<a href="/admin">Dashboard</a><a href="/admin/apps/new">Build an app</a>{{end}}</nav>
+<nav><a href="/platform/apps">Apps</a>{{if .Who}}<a href="/admin">Dashboard{{with .WaitingCount}} <span class="pill warn">{{.}} waiting</span>{{end}}</a><a href="/admin/apps/new">Build an app</a>{{end}}</nav>
 <div class="who">{{if .Who}}<span>{{.Who}}</span><a href="/auth/logout">Sign out</a>{{else}}<a class="btn sm" href="/auth/login?rd=/admin">Sign in</a>{{end}}</div>
 </div></header>
 <main{{if not .Wide}} class="narrow"{{end}}>{{if not .Wide}}<div class="card">{{end}}{{end}}

@@ -217,3 +217,26 @@ func TestGitHubAppSetup(t *testing.T) {
 		t.Fatalf("stored App not loaded: %v", err)
 	}
 }
+
+func TestWaitingBadge(t *testing.T) {
+	e, _, _ := portalEnv(t)
+	owner, super := e.browser(), e.browser()
+	e.devSignIn(owner, "p25owner@iima.ac.in", "/")
+	e.devSignIn(super, "boss@iima.ac.in", "/")
+	e.do(owner, "POST", "/admin/apps/new", url.Values{"repo": {"club/quiz"}}, nil)
+	page := func(c *http.Client) string {
+		resp, err := c.Get(e.srv.URL + "/admin")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return string(b)
+	}
+	if !strings.Contains(page(super), "1 waiting") {
+		t.Fatal("super admin does not see the waiting request")
+	}
+	if strings.Contains(page(owner), "waiting</span></a>") {
+		t.Fatal("the badge is for super admins only")
+	}
+}

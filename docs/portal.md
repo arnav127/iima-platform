@@ -44,6 +44,10 @@ the build, not here.
   claims (the mess menu at `/mess`, events at `/events`...), so approve it only for the app meant to
   be the site's front page. The platform's own app directory stays at `/platform/apps`.
 
+- **Moving a hand-made app into the portal** (one in `apps/`, like Auxesis): give its repo an
+  `app.toml` and the deploy workflow, delete its file from `apps/` and redeploy core, then connect the
+  repo and approve it. Keep the same `id` and `volume`, so its roles and data carry over.
+
 ## Trying it on a laptop
 
 ```

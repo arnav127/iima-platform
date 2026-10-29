@@ -149,6 +149,14 @@ var deployPages = template.Must(template.Must(adminPages.Clone()).Funcs(template
 {{template "bottom" .}}{{end}}
 `))
 
+// WaitingCount is how many apps wait for this super admin's approval.
+func (d deployData) WaitingCount() int {
+	if d.Actor == nil {
+		return 0
+	}
+	return d.Actor.Waiting
+}
+
 // Who is the signed-in person's email for the top bar.
 func (d deployData) Who() string {
 	if d.Actor == nil {

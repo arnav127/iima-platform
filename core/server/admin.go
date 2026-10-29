@@ -26,6 +26,9 @@ type actor struct {
 	Super  bool
 	Apps   map[string]bool // apps this person is an app admin of
 	Owns   map[string]bool // portal apps this person owns (owners manage the app's roles too)
+	// Waiting is how many portal apps wait for approval, shown to super admins in the top bar
+	// (nobody is emailed about requests).
+	Waiting int
 }
 
 func (a *actor) canManage(app string) bool { return a.Super || a.Apps[app] }
@@ -37,6 +40,17 @@ func (s *Server) actorFor(ctx context.Context, sess *store.Session) (*actor, err
 	var err error
 	if a.Super, err = s.cfg.Store.IsSuperAdmin(ctx, a.Email); err != nil {
 		return nil, err
+	}
+	if a.Super && s.cfg.Portal != nil {
+		all, err := s.cfg.Store.PortalApps(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, pa := range all {
+			if pa.Pending != "" && pa.Status != store.AppArchived {
+				a.Waiting++
+			}
+		}
 	}
 	owned, err := s.cfg.Store.OwnedApps(ctx, a.Email)
 	if err != nil {
