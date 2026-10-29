@@ -425,3 +425,50 @@ func orStr(v, d string) string {
 	}
 	return v
 }
+
+// ---- platform settings ----
+
+// Settings the platform keeps for itself, such as the GitHub App's credentials when a super admin
+// created it from /admin/github. The private key sits here in plain text: core's volume is as
+// sensitive as the Nomad Variables, and is backed up the same way.
+const settingsSchema = `
+CREATE TABLE IF NOT EXISTS platform_settings (
+	key        TEXT PRIMARY KEY,
+	value      TEXT NOT NULL,
+	updated_by TEXT NOT NULL,
+	updated_at INTEGER NOT NULL
+);
+`
+
+// Setting returns a setting, or "" when unset.
+func (s *Store) Setting(ctx context.Context, key string) (string, error) {
+	var v string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM platform_settings WHERE key = ?`, key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return v, err
+}
+
+// SetSettings writes several settings at once; an empty value deletes the setting. The audit log
+// records which keys changed, never their values.
+func (s *Store) SetSettings(ctx context.Context, actor string, kv map[string]string) error {
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		var keys []string
+		for k, v := range kv {
+			var err error
+			if v == "" {
+				_, err = tx.ExecContext(ctx, `DELETE FROM platform_settings WHERE key = ?`, k)
+			} else {
+				_, err = tx.ExecContext(ctx, `INSERT INTO platform_settings (key, value, updated_by, updated_at) VALUES (?, ?, ?, ?)
+					ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+					k, v, NormEmail(actor), time.Now().Unix())
+			}
+			if err != nil {
+				return err
+			}
+			keys = append(keys, k)
+		}
+		return audit(ctx, tx, NormEmail(actor), "settings.set", "", "", keys)
+	})
+}

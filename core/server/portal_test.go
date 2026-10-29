@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -152,5 +153,67 @@ func TestPortalWebhook(t *testing.T) {
 	m.Write([]byte(body))
 	if code := post("sha256=" + hex.EncodeToString(m.Sum(nil))); code != http.StatusNoContent {
 		t.Fatalf("genuine webhook: %d", code)
+	}
+}
+
+func TestGitHubAppSetup(t *testing.T) {
+	e, _, _ := portalEnv(t)
+	gh := githubtest.New()
+	t.Cleanup(gh.Close)
+	st := e.cfg.Store
+	p, err := portal.New(context.Background(), portal.Config{Store: st, FileApps: e.cfg.Registry.Apps(), GitHubAPI: gh.URL, GitHubWeb: gh.URL,
+		Cluster: jobgen.Cluster{PublicURL: e.srv.URL}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.cfg.Portal = p
+	e.srv.Config.Handler = New(e.cfg).Handler()
+	super, user := e.browser(), e.browser()
+	e.devSignIn(super, "boss@iima.ac.in", "/")
+	e.devSignIn(user, "p25aarav@iima.ac.in", "/")
+
+	if r := e.do(user, "GET", "/admin/github", nil, nil); r.StatusCode != http.StatusForbidden && r.StatusCode != http.StatusOK {
+		t.Fatalf("non-admin: %d", r.StatusCode)
+	} else if r.StatusCode == http.StatusOK {
+		t.Fatal("a non-super-admin saw the GitHub setup page")
+	}
+
+	// Step one: the page holds the manifest form, posting to GitHub with a state.
+	req, _ := http.NewRequest("GET", e.srv.URL+"/admin/github?name=Test+App", nil)
+	resp, err := super.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	m := regexp.MustCompile(`action="` + regexp.QuoteMeta(gh.URL) + `/settings/apps/new\?state=([0-9a-f]+)"`).FindSubmatch(body)
+	if m == nil || !strings.Contains(string(body), `name="manifest"`) || !strings.Contains(string(body), "/platform/github/webhook") {
+		t.Fatalf("no manifest form:\n%s", body)
+	}
+	state := string(m[1])
+
+	// A wrong state is refused, and so is anyone but a super admin.
+	if r := e.do(super, "GET", "/admin/github/created?code=c1&state=nope", nil, nil); !strings.Contains(r.Header.Get("Location"), "err=") {
+		t.Fatalf("wrong state: %d %s", r.StatusCode, r.Header.Get("Location"))
+	}
+	if r := e.do(user, "GET", "/admin/github/created?code=c1&state="+state, nil, nil); r.StatusCode != http.StatusForbidden {
+		t.Fatalf("non-super completing: %d", r.StatusCode)
+	}
+	if p.Connectable() {
+		t.Fatal("connected too early")
+	}
+	if r := e.do(super, "GET", "/admin/github/created?code=c1&state="+state, nil, nil); !strings.Contains(r.Header.Get("Location"), "msg=") {
+		t.Fatalf("finish: %d %s", r.StatusCode, r.Header.Get("Location"))
+	}
+	if !p.Connectable() || p.GitHubSlug() != "iima-platform-test" {
+		t.Fatal("App not switched on")
+	}
+	// The state is single use, and a restart loads the stored App.
+	if r := e.do(super, "GET", "/admin/github/created?code=c1&state="+state, nil, nil); !strings.Contains(r.Header.Get("Location"), "err=") {
+		t.Fatal("state reused")
+	}
+	p2, _ := portal.New(context.Background(), portal.Config{Store: st, FileApps: e.cfg.Registry.Apps(), GitHubAPI: gh.URL})
+	if err := p2.LoadGitHub(context.Background()); err != nil || !p2.Connectable() {
+		t.Fatalf("stored App not loaded: %v", err)
 	}
 }

@@ -182,6 +182,11 @@ strip_path = true                   # default: true, except shape = "next"
 manager_role = "admin"              # optional: holders of this role also manage the app's roles
 ```
 
+**The home app.** One app may take `path = "/"`: it gets every request that no other app and none
+of the platform's paths claim, so the site's front page (mess menu, events...) can be an app like any
+other. Its routes sit just above core's catch-all and below every other app, its public paths included,
+and its path is never stripped. Core's app directory then lives at `/platform/apps`.
+
 **Path stripping.** The gateway removes the app's path before forwarding (as Apache does today), so
 a Go, PocketBase or Python app serves at `/` and learns its public prefix from `X-Forwarded-Prefix`
 (`iimakit.Prefix`). Next.js apps keep the full path, because their `basePath` expects it. The strip
@@ -292,6 +297,8 @@ deploys by itself. The portal lives in `core` at `/admin/apps`.
 - **Apps live in core's database.** The files in `apps/` remain for apps set up by hand; core's registry is
   both together, and ids and paths must be unique across them. (This replaces "the registry is the files in
   `apps/`, reviewed by PR" for portal apps: the super-admin review below is the review.)
+- **The GitHub App** is created once by a super admin from `/admin/github` (GitHub's manifest flow:
+  read-only contents and metadata, release events). Core keeps its key in its database.
 - **Connecting a repo.** Any @iima.ac.in user installs the platform's **GitHub App** on their repo and picks
   it in the portal. The repo must have an `app.toml` at its root whose `owners` include that person, which
   proves they can write to it; the portal fills its form from that file. The person becomes an owner and

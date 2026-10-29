@@ -3,8 +3,14 @@
 #
 #   nomad job run -var version=v0.3.0 -var artifact=<url of core tar.gz> -var sha256=<hash> core.nomad.hcl
 #
-# The artifact holds ./core and ./apps (the registry at that release). Secrets live in the Nomad
-# Variable nomad/jobs/core: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET.
+# The artifact holds ./core, ./apps (the hand-made registry at that release) and ./cluster.toml
+# (deploy/nomad/cluster.toml). Secrets live in the Nomad Variable nomad/jobs/core:
+#   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   sign-in
+#   NOMAD_TOKEN                              a token under the deploy policy, for the deploy portal
+# The deploy portal's GitHub App is created from /admin/github by a super admin and kept in core's
+# database (or set GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET in the
+# variable instead). Nomad clients download app builds from core on its allocated port, so the
+# firewall must let the cluster reach it (it does: cluster traffic is open between nodes).
 #
 # Admin commands run inside the allocation, against the same database:
 #   nomad alloc exec -task core <alloc id> local/core superadmin add someone@iima.ac.in
@@ -109,9 +115,12 @@ job "core" {
       }
 
       env {
-        PUBLIC_URL = var.public_url
-        CORE_DATA  = "/data"
-        REGISTRY   = "local/apps"
+        PUBLIC_URL     = var.public_url
+        CORE_DATA      = "/data"
+        REGISTRY       = "local/apps"
+        CLUSTER_CONFIG = "local/cluster.toml"
+        # The local Nomad agent's API; the portal submits app jobs there.
+        NOMAD_ADDR = "http://${attr.unique.network.ip-address}:4646"
       }
 
       template {
@@ -126,7 +135,7 @@ job "core" {
 
       resources {
         cpu    = 300
-        memory = 256
+        memory = 512 # builds stream through core on their way to Nomad
       }
 
       kill_timeout = "10s"

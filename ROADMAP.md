@@ -73,10 +73,10 @@ are the steps that need the campus servers. Runbook: `docs/cluster.md`.
 - [x] Next.js apps set the gateway's CSP themselves with a per-request nonce (`-next` middleware chains, `contentSecurityPolicy()` in `@iima/kit/next`)
 - [x] devstack runs Next.js apps with their own PocketBase (`-app betamarkets=../predictionmarkets`, file mode)
 - [x] Port **BetaMarkets** on `platform-migration`: every route takes the person from the token (trades, comments, proposals, logbook, push), admin routes need the platform `admin` role, PocketBase rules superuser-only and its public route gone, polling instead of PocketBase realtime, secrets and VAPID keys out of the code, `platform-roles` script
-- [ ] Nomad job for Next.js + PocketBase apps (two tasks in one group, PocketBase on loopback) and its release artifact
+- [x] Nomad job for Next.js apps, with the platform's PocketBase as a loopback sidecar (`pocketbase = true`); it creates its superuser from the app's secrets
 - [ ] Before BetaMarkets moves: new VAPID keys if the old private key was ever public (it was in the code), run its `platform-roles` output
 - [ ] Port **Portfolio League** (Supabase is gone from the code; only its README, `schema.sql` and old SQL migrations mention it)
-- [ ] Next.js app template
+- [x] Next.js app template (`template/next`), built and type-checked in CI
 
 ## Phase 7: shared services
 - [ ] Postgres (shared, for core and Inngest); move core to Postgres with 2 instances
@@ -86,9 +86,15 @@ are the steps that need the campus servers. Runbook: `docs/cluster.md`.
 - [ ] `iimakit.Call` over Nomad discovery, with service tokens
 
 ## Phase 8: deploy portal
-- [ ] GitHub App; reusable GitHub Actions build workflow publishing release artifacts
-- [ ] Portal in `core`: connect repo, config form, Deploy, Rollback, Logs; Nomad job generation; Nomad Variables for secrets
-- [ ] First deploy needs super-admin approval
+- [x] GitHub App created from `/admin/github` (manifest flow); shared build workflow (`.github/workflows/build-app.yml`) publishing `build-<commit>` releases for Go, Go + PocketBase and Next.js apps
+- [x] Portal in `core` (`/admin/apps/new`, `/admin/apps/<id>/deploy`): connect a repo (its `app.toml` must list the requester as owner), settings, env vars (secrets to Nomad Variables), builds, Deploy, Rollback, Logs, owners; auto-deploy of the newest build; webhook or polling
+- [x] First deploy, and later changes to path, login, auth, public paths or shape, need super-admin approval
+- [x] Builds checked against their SHA-256, kept by core and served to Nomad over the cluster network only
+- [x] Tried end to end on a laptop: `devstack -nomad -portal` (fake GitHub with both templates)
+- [x] Home app at `/`: gets every path nothing else claims; the app directory moves to `/platform/apps`
+- [x] New look for every core page (directory, dashboard, approval queue, app page)
+- [ ] On GitHub: make `iima-platform` public (or move the build workflow and kits somewhere public), so other people's repos can call the workflow
+- [ ] On the cluster: core's Nomad Variable gets `NOMAD_TOKEN`; create the GitHub App; connect Auxesis as the first portal app
 - [ ] `iima` CLI
 
 ## Phase 9: operations

@@ -79,6 +79,17 @@ http:
     platform:
       chain:
         middlewares: [strip-identity, security-headers, compress]
+    # The GitHub App setup page posts the App's manifest to github.com (super admins, once), so its
+    # policy also allows that one form target.
+    security-headers-github:
+      headers:
+        frameDeny: true
+        contentTypeNosniff: true
+        referrerPolicy: strict-origin-when-cross-origin
+        contentSecurityPolicy: "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self' https://github.com"
+    platform-github:
+      chain:
+        middlewares: [strip-identity, security-headers-github, compress]
 
   routers:
     # Never public: the forward-auth endpoint, and every app's PocketBase dashboard (/<app>/_/)
@@ -88,6 +99,12 @@ http:
       priority: 10000
       service: core
       middlewares: [platform, to-404]
+
+    core-github-setup:
+      rule: "Path(`/admin/github`)"
+      priority: 1100
+      service: core
+      middlewares: [platform-github]
 
     core-auth:
       rule: "Path(`/auth`) || PathPrefix(`/auth/`) || PathPrefix(`/platform/`) || Path(`/admin`) || PathPrefix(`/admin/`)"

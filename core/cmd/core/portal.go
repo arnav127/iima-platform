@@ -34,6 +34,7 @@ func newPortal(ctx context.Context, log *slog.Logger, st *store.Store, reg *regi
 	cfg := portal.Config{
 		Store: st, FileApps: reg.Apps(), Log: log,
 		ArtifactDir: filepath.Join(dataDir, "artifacts"),
+		GitHubAPI:   os.Getenv("GITHUB_API_URL"), GitHubWeb: os.Getenv("GITHUB_WEB_URL"),
 		ArtifactURL: env("ARTIFACT_URL", "http://"+addr+"/platform/artifacts"),
 	}
 
@@ -78,10 +79,17 @@ func newPortal(ctx context.Context, log *slog.Logger, st *store.Store, reg *regi
 		}
 	}
 
+	if cfg.Cluster.PublicURL == "" {
+		cfg.Cluster.PublicURL = env("PUBLIC_URL", "http://localhost:8080") // also the GitHub App's URLs
+	}
 	p, err := portal.New(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	log.Info("portal", "github", cfg.GitHub != nil, "nomad", cfg.Nomad != nil, "artifacts", cfg.ArtifactURL)
+	// An App a super admin created at /admin/github, unless the environment set one.
+	if err := p.LoadGitHub(ctx); err != nil {
+		return nil, err
+	}
+	log.Info("portal", "github", p.Connectable(), "nomad", cfg.Nomad != nil, "artifacts", cfg.ArtifactURL)
 	return p, nil
 }

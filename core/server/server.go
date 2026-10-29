@@ -75,6 +75,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	s.apiRoutes(mux)
 	s.portalRoutes(mux)
+	s.githubRoutes(mux)
 	s.adminRoutes(mux)
 	mux.HandleFunc("GET /{$}", s.handleHome)
 	mux.HandleFunc("GET /platform/apps", s.handleHome) // the directory, also when a home app owns /

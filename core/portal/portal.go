@@ -12,6 +12,7 @@ package portal
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -23,6 +24,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -50,13 +52,16 @@ type Config struct {
 	ArtifactDir string
 	ArtifactURL string
 	FileApps    []*registry.App // apps from apps/*.toml, set up by hand
-	Keep        int             // builds kept on disk per app (default 5)
-	MaxArtifact int64           // bytes (default 512 MB)
-	Log         *slog.Logger
+	// GitHubAPI and GitHubWeb point at a fake GitHub in tests and on a laptop ("" for github.com).
+	GitHubAPI, GitHubWeb string
+	Keep                 int   // builds kept on disk per app (default 5)
+	MaxArtifact          int64 // bytes (default 512 MB)
+	Log                  *slog.Logger
 }
 
 type Portal struct {
 	cfg  Config
+	gh   atomic.Pointer[github.App] // swapped in when a super admin creates the GitHub App
 	reg  atomic.Pointer[registry.Registry]
 	mu   sync.Mutex // one sync or deploy at a time
 	kick chan struct{}
@@ -78,6 +83,7 @@ func New(ctx context.Context, cfg Config) (*Portal, error) {
 		}
 	}
 	p := &Portal{cfg: cfg, kick: make(chan struct{}, 1)}
+	p.gh.Store(cfg.GitHub)
 	if err := p.rebuild(ctx); err != nil {
 		return nil, err
 	}
@@ -88,14 +94,21 @@ func New(ctx context.Context, cfg Config) (*Portal, error) {
 func (p *Portal) Registry() *registry.Registry { return p.reg.Load() }
 
 // Connectable reports whether people can connect repos (a GitHub App is configured).
-func (p *Portal) Connectable() bool { return p.cfg.GitHub != nil }
+func (p *Portal) Connectable() bool { return p.gh.Load() != nil }
+
+// SetGitHub switches on (or replaces) the GitHub App, e.g. right after a super admin created it.
+func (p *Portal) SetGitHub(a *github.App) {
+	p.gh.Store(a)
+	p.Kick()
+}
 
 // InstallURL is the GitHub page where an owner installs the platform's App on a repo.
 func (p *Portal) InstallURL() string {
-	if p.cfg.GitHub == nil {
+	gh := p.gh.Load()
+	if gh == nil {
 		return ""
 	}
-	return p.cfg.GitHub.InstallURL("portal")
+	return gh.InstallURL("portal")
 }
 
 func (p *Portal) rebuild(ctx context.Context) error {
@@ -143,7 +156,7 @@ func NormRepo(s string) (string, error) {
 // Request records a new app from repo's app.toml. The person must be one of its owners there,
 // which shows they can write to the repo. It stays offline until a super admin approves it.
 func (p *Portal) Request(ctx context.Context, actor, repoIn string) (*registry.App, error) {
-	gh := p.cfg.GitHub
+	gh := p.gh.Load()
 	if gh == nil {
 		return nil, UserError("Connecting repos is not set up on this platform yet.")
 	}
@@ -602,7 +615,8 @@ func (p *Portal) Run(ctx context.Context, every time.Duration) {
 // Sync fetches new builds for every app and deploys the newest one of each approved app with
 // auto-deploy on, unless that build was already tried.
 func (p *Portal) Sync(ctx context.Context) {
-	if p.cfg.GitHub == nil {
+	gh := p.gh.Load()
+	if gh == nil {
 		return
 	}
 	all, err := p.cfg.Store.PortalApps(ctx)
@@ -616,7 +630,7 @@ func (p *Portal) Sync(ctx context.Context) {
 		if pa.Status == store.AppArchived {
 			continue
 		}
-		newest, err := p.fetch(ctx, pa)
+		newest, err := p.fetch(ctx, gh, pa)
 		if err != nil {
 			p.cfg.Log.Warn("portal: fetching builds", "app", pa.ID, "err", err)
 			continue
@@ -635,8 +649,8 @@ func (p *Portal) Sync(ctx context.Context) {
 }
 
 // fetch downloads builds the portal has not seen and returns the newest build's tag.
-func (p *Portal) fetch(ctx context.Context, pa *store.PortalApp) (string, error) {
-	rs, err := p.cfg.GitHub.Releases(ctx, pa.InstallationID, pa.Repo)
+func (p *Portal) fetch(ctx context.Context, gh *github.App, pa *store.PortalApp) (string, error) {
+	rs, err := gh.Releases(ctx, pa.InstallationID, pa.Repo)
 	if err != nil {
 		return "", err
 	}
@@ -663,7 +677,7 @@ func (p *Portal) fetch(ctx context.Context, pa *store.PortalApp) (string, error)
 		if tried++; tried > 3 { // an old backlog is not worth downloading
 			break
 		}
-		if err := p.download(ctx, pa, r); err != nil {
+		if err := p.download(ctx, gh, pa, r); err != nil {
 			if r.Tag == newest {
 				return "", err
 			}
@@ -676,12 +690,12 @@ func (p *Portal) fetch(ctx context.Context, pa *store.PortalApp) (string, error)
 
 // download fetches a build's app.tar.gz, checks its SHA-256 against what the release says, and
 // stores it as <sha256>.tar.gz.
-func (p *Portal) download(ctx context.Context, pa *store.PortalApp, r github.Release) error {
+func (p *Portal) download(ctx context.Context, gh *github.App, pa *store.PortalApp, r github.Release) error {
 	asset := r.Asset("app.tar.gz")
 	want := strings.TrimPrefix(asset.Digest, "sha256:")
 	if s := r.Asset("app.tar.gz.sha256"); s != nil {
 		var b strings.Builder
-		if _, err := p.cfg.GitHub.Download(ctx, pa.InstallationID, pa.Repo, s.ID, &b, 1024); err != nil {
+		if _, err := gh.Download(ctx, pa.InstallationID, pa.Repo, s.ID, &b, 1024); err != nil {
 			return err
 		}
 		fromFile, _, _ := strings.Cut(strings.TrimSpace(b.String()), " ")
@@ -700,7 +714,7 @@ func (p *Portal) download(ctx context.Context, pa *store.PortalApp, r github.Rel
 	}
 	defer os.Remove(tmp.Name())
 	h := sha256.New()
-	n, err := p.cfg.GitHub.Download(ctx, pa.InstallationID, pa.Repo, asset.ID, io.MultiWriter(tmp, h), p.cfg.MaxArtifact)
+	n, err := gh.Download(ctx, pa.InstallationID, pa.Repo, asset.ID, io.MultiWriter(tmp, h), p.cfg.MaxArtifact)
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
 	}
@@ -754,9 +768,110 @@ func (p *Portal) prune(ctx context.Context, id string) {
 
 // Webhook checks a GitHub webhook's signature and, if it is genuine, looks for new builds now.
 func (p *Portal) Webhook(body []byte, signature string) bool {
-	if p.cfg.GitHub == nil || !p.cfg.GitHub.VerifyWebhook(body, signature) {
+	gh := p.gh.Load()
+	if gh == nil || !gh.VerifyWebhook(body, signature) {
 		return false
 	}
 	p.Kick()
 	return true
+}
+
+// ---- the platform's GitHub App ----
+
+// Setting keys for an App created from /admin/github.
+const (
+	setAppID       = "github_app_id"
+	setAppSlug     = "github_app_slug"
+	setAppKey      = "github_app_key"
+	setAppWebhook  = "github_webhook_secret"
+	setAppState    = "github_manifest_state"
+	manifestMaxAge = 30 * time.Minute
+)
+
+// GitHubSlug is the configured App's name in its URL ("" when there is none).
+func (p *Portal) GitHubSlug() string {
+	if gh := p.gh.Load(); gh != nil {
+		return gh.Slug
+	}
+	return ""
+}
+
+// LoadGitHub turns on the App stored by an earlier /admin/github setup, when the environment did
+// not configure one.
+func (p *Portal) LoadGitHub(ctx context.Context) error {
+	if p.gh.Load() != nil {
+		return nil
+	}
+	id, _ := p.cfg.Store.Setting(ctx, setAppID)
+	if id == "" {
+		return nil
+	}
+	slug, _ := p.cfg.Store.Setting(ctx, setAppSlug)
+	key, _ := p.cfg.Store.Setting(ctx, setAppKey)
+	hook, _ := p.cfg.Store.Setting(ctx, setAppWebhook)
+	a, err := p.appFrom(id, slug, key, hook)
+	if err != nil {
+		return err
+	}
+	p.gh.Store(a)
+	return nil
+}
+
+func (p *Portal) appFrom(id, slug, key, hook string) (*github.App, error) {
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("portal: stored GitHub App id: %w", err)
+	}
+	k, err := github.ParseKey([]byte(key))
+	if err != nil {
+		return nil, err
+	}
+	return &github.App{ID: n, Slug: slug, Key: k, WebhookSecret: hook, API: p.cfg.GitHubAPI, Web: p.cfg.GitHubWeb}, nil
+}
+
+// StartManifest returns where to post the App's manifest and the manifest itself, and remembers
+// the state GitHub must send back, so only this flow can complete it.
+func (p *Portal) StartManifest(ctx context.Context, actor, name, org string) (action string, manifest []byte, err error) {
+	if manifest, err = github.Manifest(name, p.cfg.Cluster.PublicURL); err != nil {
+		return "", nil, UserError("Give the App a name.")
+	}
+	state := randomToken()
+	if err := p.cfg.Store.SetSettings(ctx, actor, map[string]string{setAppState: state + "|" + strconv.FormatInt(time.Now().Unix(), 10)}); err != nil {
+		return "", nil, err
+	}
+	return github.NewAppURL(p.cfg.GitHubWeb, strings.TrimSpace(org), state), manifest, nil
+}
+
+// FinishManifest trades GitHub's code for the new App's credentials, stores them and switches the
+// App on.
+func (p *Portal) FinishManifest(ctx context.Context, actor, code, state string) error {
+	saved, _ := p.cfg.Store.Setting(ctx, setAppState)
+	want, at, _ := strings.Cut(saved, "|")
+	started, _ := strconv.ParseInt(at, 10, 64)
+	if want == "" || state != want || time.Since(time.Unix(started, 0)) > manifestMaxAge {
+		return UserError("This GitHub App link has expired or was not started here. Start again.")
+	}
+	c, err := github.Convert(ctx, p.cfg.GitHubAPI, code)
+	if err != nil {
+		return err
+	}
+	a, err := p.appFrom(strconv.FormatInt(c.ID, 10), c.Slug, c.PEM, c.WebhookSecret)
+	if err != nil {
+		return err
+	}
+	if err := p.cfg.Store.SetSettings(ctx, actor, map[string]string{
+		setAppID: strconv.FormatInt(c.ID, 10), setAppSlug: c.Slug, setAppKey: c.PEM, setAppWebhook: c.WebhookSecret, setAppState: "",
+	}); err != nil {
+		return err
+	}
+	p.SetGitHub(a)
+	return nil
+}
+
+func randomToken() string {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
 }

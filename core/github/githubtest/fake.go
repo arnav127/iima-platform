@@ -7,6 +7,8 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/pem"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -110,6 +112,17 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 	p := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	auth := r.Header.Get("Authorization")
+
+	// GitHub's manifest flow: any code turns into this fake's App.
+	if r.Method == http.MethodPost && len(p) == 3 && p[0] == "app-manifests" && p[2] == "conversions" {
+		if p[1] == "bad" {
+			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+			return
+		}
+		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(s.Key)})
+		writeJSON(w, map[string]any{"id": AppID, "slug": "iima-platform-test", "pem": string(keyPEM), "webhook_secret": "from-manifest", "html_url": s.URL + "/apps/iima-platform-test"})
+		return
+	}
 
 	// The App itself (JWT): installation tokens and "which installation covers this repo".
 	if strings.HasPrefix(auth, "Bearer ") {

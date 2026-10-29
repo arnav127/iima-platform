@@ -60,7 +60,22 @@ nomad alloc exec -task core <alloc id> local/core superadmin add you@iima.ac.in
 
 The Google OAuth client needs `https://students.iima.ac.in/auth/callback` as a redirect URI.
 
-## 4. Deploy an app
+## 4. Turn on the deploy portal
+
+```
+nomad acl token create -name portal -policy deploy                # its secret: NOMAD_TOKEN below
+nomad var put -force nomad/jobs/core NOMAD_TOKEN=<secret> GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=...
+```
+
+(`nomad var put` replaces the whole variable, so give every key again.) Then, signed in as a super
+admin, create the GitHub App at `https://students.iima.ac.in/admin/github`. From then on owners connect
+their repos themselves; see [portal.md](portal.md). Every client needs Node (setup.sh checks) for
+Next.js apps.
+
+## 5. Deploy an app by hand
+
+Only for apps set up outside the portal (the files in `apps/`):
+
 
 ```
 nomad volume create auxesiscapital-data.hcl          # PocketBase apps: once, before the first deploy
@@ -76,7 +91,7 @@ The release tar.gz holds `./app` (the Linux binary) and `./pb_public` (the front
 **Roll back:** `nomad job history auxesiscapital`, then `nomad job revert auxesiscapital <version>`.
 A deploy that fails its health check reverts by itself.
 
-## 5. Cut Auxesis over from Apache
+## 6. Cut Auxesis over from Apache
 
 Before: Auxesis's `platform-migration` branch merged and released; core deployed; the fund's
 admins given the `admin` role in `/admin/apps/auxesiscapital` (they replace `ADMIN_EMAILS`).

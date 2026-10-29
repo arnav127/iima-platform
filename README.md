@@ -48,6 +48,16 @@ for the real servers.
 Super admins: `cd core && CORE_DATA=../.dev/core-data go run ./cmd/core superadmin add you@iima.ac.in`,
 then open http://localhost:8080/admin.
 
+A Next.js app runs the same way (`npm run build` in its repo first); an app not in `apps/` is read
+from its own `app.toml`. `-nomad -portal` runs the deploy portal against a fake GitHub with both
+templates as demo repos: connect one, approve it, and it deploys. See [docs/portal.md](docs/portal.md).
+
+## Host an app
+
+Owners connect a GitHub repo at `/admin/apps/new`; every push to `main` builds and deploys once a
+super admin has approved the app. Start from `template/go-pocketbase` or `template/next`. Guide:
+[docs/portal.md](docs/portal.md).
+
 ## Layout
 
 | Folder | What |
@@ -57,6 +67,7 @@ then open http://localhost:8080/admin.
 | `kit/pb/` | `iimakit/pb`: puts a Go + PocketBase app behind the platform (`pb.New`). Its own Go module. |
 | `kit-js/` | `@iima/kit` for frontends: `api`, `me`, `login`, `logout`, router, stores. `@iima/kit/next`: `getUser()` for Next.js servers. |
 | `pocketbase/` | The platform's build of stock PocketBase (pinned version) for apps that run it next to a Next.js or Python server. |
+| `template/` | `go-pocketbase` and `next`: the two starting points for a new app, built in CI. |
 | `kit-py/` | `iimakit` for Python (FastAPI): `Verifier(app).user(request)`, `require_user`. |
 | `apps/` | One `app.toml` per app: the registry. |
 | `deploy/traefik/` | Gateway config and the `platformstrip` plugin. |
