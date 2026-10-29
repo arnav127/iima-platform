@@ -312,3 +312,39 @@ func TestEnv(t *testing.T) {
 		t.Fatal("old secret left in Nomad")
 	}
 }
+
+func TestStopAndArchive(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	e.gh.AddRepo("club/quiz", 2, map[string][]byte{"app.toml": []byte(quizToml)})
+	e.p.Request(ctx, "p25owner@iima.ac.in", "club/quiz")
+	e.p.Approve(ctx, "super@iima.ac.in", "quiz")
+	e.gh.AddRelease("club/quiz", "build-aaaaaaa", "", []byte("one"))
+	e.p.Sync(ctx)
+	if err := e.p.Stop(ctx, "p25owner@iima.ac.in", "quiz"); err != nil {
+		t.Fatal(err)
+	}
+	n := e.nm.count()
+	// A new build or a settings change must not bring a stopped app back.
+	e.gh.AddRelease("club/quiz", "build-bbbbbbb", "", []byte("two"))
+	e.p.Sync(ctx)
+	if err := e.p.SetEnv(ctx, "p25owner@iima.ac.in", "quiz", "SITE", "x", false); err != nil {
+		t.Fatal(err)
+	}
+	if e.nm.count() != n {
+		t.Fatal("a stopped app was deployed again")
+	}
+	// Deploying by hand brings it back.
+	if err := e.p.Deploy(ctx, "p25owner@iima.ac.in", "quiz", "build-bbbbbbb"); err != nil || e.nm.count() != n+1 {
+		t.Fatalf("deploy after stop: %v", err)
+	}
+	if err := e.p.Archive(ctx, "super@iima.ac.in", "quiz"); err != nil {
+		t.Fatal(err)
+	}
+	if e.p.Registry().ByID("quiz") != nil {
+		t.Fatal("archived app still routed")
+	}
+	if err := e.p.Deploy(ctx, "p25owner@iima.ac.in", "quiz", "build-bbbbbbb"); !isUserError(err) {
+		t.Fatalf("deploying an archived app: %v", err)
+	}
+}

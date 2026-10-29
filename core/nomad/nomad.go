@@ -34,6 +34,15 @@ func (c *Client) SubmitJob(ctx context.Context, j *jobgen.Job) (string, error) {
 	return res.EvalID, err
 }
 
+// StopJob stops a job's allocations (the job and its history stay, so a deploy brings it back).
+func (c *Client) StopJob(ctx context.Context, job string) error {
+	err := c.call(ctx, http.MethodDelete, "/v1/job/"+url.PathEscape(job), nil, nil)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	return err
+}
+
 // VariablePath is where an app's secrets live; its job template reads every key into the env.
 func VariablePath(app string) string { return "nomad/jobs/" + app }
 

@@ -131,9 +131,14 @@ var deployPages = template.Must(template.Must(adminPages.Clone()).Funcs(template
 <form class="inline" method="post" action="/admin/apps/{{$id}}/owners" style="margin-top:.9rem"><input type="email" name="email" required placeholder="someone@iima.ac.in"><input type="hidden" name="action" value="add"><button class="btn sm" type="submit">Add owner</button></form>
 <p class="hint">Owners deploy, change settings and env vars, and manage roles. Alerts go to them. Hand the app over by adding next year's team.</p></div>
 
+{{if eq $a.Status "approved"}}<div class="section"><h2>Take it down</h2>
+<p class="muted small">Stop takes the running copy down and turns auto-deploy off; deploy a build to bring it back. Data is kept.{{if .Actor.Super}} Archive also takes the app off the platform and frees its path.{{end}}</p>
+<div class="row"><form class="inline" method="post" action="/admin/apps/{{$id}}/stop" style="margin:0"><button class="btn danger" type="submit">Stop the app</button></form>
+{{if .Actor.Super}}<form class="inline" method="post" action="/admin/apps/{{$id}}/archive" style="margin:0"><button class="btn danger" type="submit">Archive</button></form>{{end}}</div></div>{{end}}
+
 <div class="section" id="deploys"><h2>Deploys</h2>
 {{if .Deploys}}<table><tr><th>When (IST)</th><th>Build</th><th>By</th><th>Result</th></tr>
-{{range .Deploys}}<tr><td class="small">{{.At.Format "02 Jan 15:04"}}</td><td><code>{{.Tag}}</code></td><td class="small">{{if eq .Actor "auto"}}<span class="pill">auto</span>{{else}}{{.Actor}}{{end}}</td><td>{{if eq .Status "submitted"}}<span class="pill ok">sent to Nomad</span>{{else}}<span class="pill bad">{{.Status}}</span>{{end}}{{with .Message}} <span class="muted small">{{.}}</span>{{end}}</td></tr>{{end}}</table>
+{{range .Deploys}}<tr><td class="small">{{.At.Format "02 Jan 15:04"}}</td><td><code>{{.Tag}}</code></td><td class="small">{{if eq .Actor "auto"}}<span class="pill">auto</span>{{else}}{{.Actor}}{{end}}</td><td>{{if eq .Status "submitted"}}<span class="pill ok">sent to Nomad</span>{{else if eq .Status "stopped"}}<span class="pill">stopped</span>{{else}}<span class="pill bad">{{.Status}}</span>{{end}}{{with .Message}} <span class="muted small">{{.}}</span>{{end}}</td></tr>{{end}}</table>
 {{else}}<p class="muted">None yet.</p>{{end}}</div>
 {{template "bottom" .}}{{end}}
 
@@ -212,7 +217,7 @@ func (s *Server) portalRoutes(mux *http.ServeMux) {
 			s.portalDone(w, r, "/admin/apps/new", err, "")
 			return
 		}
-		s.portalDone(w, r, "/admin/apps/"+app.ID+"/deploy", nil, "Requested. A super admin has been asked to approve it.")
+		s.portalDone(w, r, "/admin/apps/"+app.ID+"/deploy", nil, "Requested. It is in the super admins' approval queue now.")
 	})
 
 	// appFor loads a portal app the person may deploy (owners and super admins).
@@ -352,6 +357,12 @@ func (s *Server) portalRoutes(mux *http.ServeMux) {
 			p.Kick()
 		}
 		return "Saved.", s.cfg.Store.SetAutoDeploy(r.Context(), a.Email, pa.ID, on)
+	}))
+	mux.HandleFunc("POST /admin/apps/{app}/stop", owner(func(a *actor, pa *store.PortalApp, r *http.Request) (string, error) {
+		return "Stopped. Deploy a build to bring it back.", p.Stop(r.Context(), a.Email, pa.ID)
+	}))
+	mux.HandleFunc("POST /admin/apps/{app}/archive", super(func(a *actor, pa *store.PortalApp, r *http.Request) (string, error) {
+		return "Archived. The app is off the platform; its data volume is kept.", p.Archive(r.Context(), a.Email, pa.ID)
 	}))
 	mux.HandleFunc("POST /admin/apps/{app}/owners", owner(func(a *actor, pa *store.PortalApp, r *http.Request) (string, error) {
 		email, err := validEmail(r.PostFormValue("email"))

@@ -488,7 +488,10 @@ func (p *Portal) Redeploy(ctx context.Context, actor, id string) error {
 		return err
 	}
 	for _, x := range d {
-		if x.Status == "submitted" {
+		switch x.Status {
+		case "stopped": // someone took it down on purpose: a settings change must not bring it back
+			return nil
+		case "submitted":
 			return p.deployLocked(ctx, actor, id, x.Tag)
 		}
 	}
@@ -560,6 +563,40 @@ func (p *Portal) release(ctx context.Context, id, tag string) (*store.Release, e
 		}
 	}
 	return nil, UserError("No build " + tag + ".")
+}
+
+// Stop takes the app's running copy down and turns auto-deploy off, so it stays down until someone
+// deploys a build again. The app stays approved and keeps its data.
+func (p *Portal) Stop(ctx context.Context, actor, id string) error {
+	if p.cfg.Nomad == nil {
+		return UserError("Nomad is not configured.")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.cfg.Store.SetAutoDeploy(ctx, actor, id, false); err != nil {
+		return err
+	}
+	if err := p.cfg.Nomad.StopJob(ctx, id); err != nil {
+		return err
+	}
+	return p.cfg.Store.AddDeploy(ctx, store.Deploy{AppID: id, Tag: "-", Actor: actor, Status: "stopped"})
+}
+
+// Archive stops the app and takes it off the platform: its path is free again and nothing deploys.
+// Its data volume is kept (delete it by hand once a backup is safe).
+func (p *Portal) Archive(ctx context.Context, actor, id string) error {
+	if p.cfg.Nomad != nil {
+		p.mu.Lock()
+		err := p.cfg.Nomad.StopJob(ctx, id)
+		p.mu.Unlock()
+		if err != nil {
+			return err
+		}
+	}
+	if err := p.cfg.Store.ArchivePortalApp(ctx, actor, id); err != nil {
+		return err
+	}
+	return p.rebuild(ctx)
 }
 
 // Status asks Nomad how the app is doing (nil when it has never run or Nomad is off).

@@ -225,6 +225,16 @@ func (s *Store) RejectPending(ctx context.Context, actor, id string) error {
 	})
 }
 
+// ArchivePortalApp takes an app off the platform: out of the registry, its repo free to connect again.
+func (s *Store) ArchivePortalApp(ctx context.Context, actor, id string) error {
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `UPDATE portal_apps SET status = ?, pending = '', auto_deploy = 0 WHERE id = ?`, AppArchived, id); err != nil {
+			return err
+		}
+		return audit(ctx, tx, NormEmail(actor), "app.archive", id, "", nil)
+	})
+}
+
 func (s *Store) SetAutoDeploy(ctx context.Context, actor, id string, on bool) error {
 	return s.inTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE portal_apps SET auto_deploy = ? WHERE id = ?`, b2i(on), id); err != nil {
