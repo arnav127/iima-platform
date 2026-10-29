@@ -7,7 +7,8 @@
 # What app.tar.gz holds, by shape (app.toml):
 #   go-pocketbase  ./app (Linux binary), ./pb_public (the built frontend)
 #   go             ./app
-#   next           ./app/server.js (Next's standalone server)
+#   next           ./app/server.js (Next's standalone server); with backend = "..." also ./backend
+#                  (the Python backend's code) and ./site (its dependencies)
 #   python         ./app (the code) and ./site (its dependencies, iimakit included)
 #   with pocketbase = true (next, python) also ./pocketbase (the platform's pinned build),
 #   ./pb_migrations and ./pb_hooks
@@ -26,6 +27,14 @@ on:
         default: backend/pb_public
       web-dir:
         description: Next.js apps, the folder with package.json and next.config
+        type: string
+        default: "."
+      python-backend-dir:
+        description: Next.js apps with backend = "..." in app.toml, the Python backend's folder
+        type: string
+        default: backend
+      pocketbase-dir:
+        description: Apps with pocketbase = true, the folder holding pb_migrations and pb_hooks
         type: string
         default: "."
       python-version:
@@ -66,6 +75,7 @@ jobs:
           print("base=" + a["path"].rstrip("/") + "/")
           print("shape=" + a.get("shape", ""))
           print("pocketbase=" + str(a.get("pocketbase", False)).lower())
+          print("backend=" + a.get("backend", ""))
           EOF
 
       - uses: actions/setup-node@v5
@@ -125,7 +135,7 @@ jobs:
           if [ "$sub" != "." ]; then echo "require('./$sub/server.js')" > "$GITHUB_WORKSPACE/dist/app/server.js"; fi
       # ---- Python apps ----
       - uses: actions/setup-python@v6
-        if: steps.app.outputs.shape == 'python'
+        if: steps.app.outputs.shape == 'python' || steps.app.outputs.backend != ''
         with:
           python-version: ${{ inputs.python-version }}
       - name: Test and package the Python app
@@ -141,13 +151,24 @@ jobs:
           tar -cf - --exclude=.git --exclude=.github --exclude=tests --exclude=.venv --exclude=__pycache__ \
             --exclude=pb_migrations --exclude=pb_hooks . | tar -xf - -C "$GITHUB_WORKSPACE/dist/app"
 
+      - name: Pack the Python backend
+        if: steps.app.outputs.shape == 'next' && steps.app.outputs.backend != ''
+        working-directory: app/${{ inputs.python-backend-dir }}
+        run: |
+          python -m pip install --upgrade pip
+          if [ -d tests ]; then python -m pip install -r requirements.txt "$GITHUB_WORKSPACE/iima-platform/kit-py" pytest && python -m pytest -q; fi
+          mkdir -p "$GITHUB_WORKSPACE/dist/site" "$GITHUB_WORKSPACE/dist/backend"
+          python -m pip install --target "$GITHUB_WORKSPACE/dist/site" -r requirements.txt "$GITHUB_WORKSPACE/iima-platform/kit-py"
+          tar -cf - --exclude=tests --exclude=.venv --exclude=venv --exclude=__pycache__ --exclude=.env . | tar -xf - -C "$GITHUB_WORKSPACE/dist/backend"
+
       - name: Add the platform's PocketBase
         if: (steps.app.outputs.shape == 'next' || steps.app.outputs.shape == 'python') && steps.app.outputs.pocketbase == 'true'
         run: |
           (cd iima-platform/pocketbase && GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o "$GITHUB_WORKSPACE/dist/pocketbase" .)
           mkdir -p dist/pb_migrations dist/pb_hooks
-          if [ -d app/pb_migrations ]; then cp -r app/pb_migrations/. dist/pb_migrations/; fi
-          if [ -d app/pb_hooks ]; then cp -r app/pb_hooks/. dist/pb_hooks/; fi
+          pbdir="app/${{ inputs.pocketbase-dir }}"
+          if [ -d "$pbdir/pb_migrations" ]; then cp -r "$pbdir/pb_migrations/." dist/pb_migrations/; fi
+          if [ -d "$pbdir/pb_hooks" ]; then cp -r "$pbdir/pb_hooks/." dist/pb_hooks/; fi
 
       - name: Package
         run: |

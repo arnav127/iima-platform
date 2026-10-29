@@ -187,6 +187,30 @@ func Build(c Cluster, app *registry.App, rel Release) (*Job, error) {
 		task.Env["PYTHONUNBUFFERED"] = "1"
 	}
 
+	if app.Backend != "" {
+		// The app's Python backend beside the Next server, on loopback only: the Next server is
+		// its only client. Code in local/backend, dependencies (from the build) in local/site.
+		be := &Task{
+			Name: "backend", Driver: c.Driver,
+			Env: map[string]string{
+				"PYTHONPATH": "local/backend" + c.pathSep() + "local/site", "PYTHONUNBUFFERED": "1",
+				"IIMA_JWKS_URL": c.JWKSURL, "APP_URL": publicURL + app.Path,
+			},
+			Lifecycle:   &Lifecycle{Hook: "prestart", Sidecar: true},
+			Resources:   &Resources{CPU: 200, MemoryMB: 256},
+			KillTimeout: dur(10 * time.Second),
+			Artifacts:   task.Artifacts,
+			Templates:   task.Templates,
+			Config: map[string]any{"command": orStr(c.Python, "python3"), "args": []string{
+				"-m", "uvicorn", app.Backend, "--app-dir", "local/backend", "--host", "127.0.0.1", "--port", "${NOMAD_PORT_backend}",
+			}},
+		}
+		maps.Copy(be.Env, rel.Env)
+		tg.Networks[0].DynamicPorts = append(tg.Networks[0].DynamicPorts, Port{Label: "backend"})
+		task.Env["BACKEND_URL"] = "http://127.0.0.1:${NOMAD_PORT_backend}"
+		tg.Tasks = append([]*Task{be}, tg.Tasks...)
+	}
+
 	if app.PocketBase {
 		// The platform's PocketBase beside the app, on loopback only: the app's server is its only
 		// client. It starts first and runs as long as the app (a sidecar).
@@ -208,7 +232,12 @@ func Build(c Cluster, app *registry.App, rel Release) (*Job, error) {
 		}}
 		tg.Networks[0].DynamicPorts = append(tg.Networks[0].DynamicPorts, Port{Label: "pb"})
 		task.Env["POCKETBASE_URL"] = "http://127.0.0.1:${NOMAD_PORT_pb}"
-		tg.Tasks = []*Task{pb, task}
+		for _, t := range tg.Tasks {
+			if t.Name == "backend" {
+				t.Env["POCKETBASE_URL"] = task.Env["POCKETBASE_URL"]
+			}
+		}
+		tg.Tasks = append([]*Task{pb}, tg.Tasks...)
 	}
 
 	return &Job{

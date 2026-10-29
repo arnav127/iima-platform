@@ -44,6 +44,9 @@ type App struct {
 	PocketBase bool `toml:"pocketbase"`
 	// Entry is a Python app's ASGI app, as uvicorn takes it (default "main:app").
 	Entry string `toml:"entry"`
+	// Backend runs a Python (ASGI) backend beside a Next.js app, on loopback, as uvicorn takes it
+	// ("main:app"); the Next server reaches it at BACKEND_URL. Portfolio League's FastAPI.
+	Backend string `toml:"backend"`
 
 	// Shape "external": an app not on the platform yet, still running where it always has (PM2
 	// behind Apache, say). The gateway proxies its path to Upstream the way Apache's ProxyPass and
@@ -234,6 +237,8 @@ func (a *App) validate() error {
 		return fmt.Errorf("shape %q: must be one of %s", a.Shape, strings.Join(shapes, ", "))
 	case a.PocketBase && a.Shape != "next" && a.Shape != "python":
 		return fmt.Errorf("pocketbase = true is for Next.js and Python apps; Go apps build PocketBase in (shape go-pocketbase)")
+	case a.Backend != "" && a.Shape != "next":
+		return fmt.Errorf("backend is for Next.js apps; a Python app is shape python")
 	case a.Shape == ShapeExternal && a.Upstream == "":
 		return fmt.Errorf("an external route needs upstream, like http://10.0.0.5:3010")
 	case a.Shape != ShapeExternal && (a.Upstream != "" || a.InsecureTLS):

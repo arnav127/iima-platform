@@ -75,7 +75,7 @@ are the steps that need the campus servers. Runbook: `docs/cluster.md`.
 - [x] Port **BetaMarkets** on `platform-migration`: every route takes the person from the token (trades, comments, proposals, logbook, push), admin routes need the platform `admin` role, PocketBase rules superuser-only and its public route gone, polling instead of PocketBase realtime, secrets and VAPID keys out of the code, `platform-roles` script
 - [x] Nomad job for Next.js apps, with the platform's PocketBase as a loopback sidecar (`pocketbase = true`); it creates its superuser from the app's secrets
 - [ ] Before BetaMarkets moves: new VAPID keys if the old private key was ever public (it was in the code), run its `platform-roles` output
-- [ ] Port **Portfolio League** (Supabase is gone from the code; only its README, `schema.sql` and old SQL migrations mention it)
+- [x] Port **Portfolio League** on `platform-migration`: PocketBase as the signed-in person (impersonation), FastAPI backend as a loopback sidecar checking the platform token (`backend = "main:app"`), Inngest forwarded at `/api/inngest`, hooks on the current PocketBase API, schema and lockdown migrations; run end to end on the local stack (league, enrolment, order)
 - [x] Next.js app template (`template/next`), built and type-checked in CI
 - [x] Python apps: shape `python` (uvicorn, dependencies installed by the build for the cluster's Python), optional PocketBase sidecar, `template/python` (FastAPI + `kit-py`) tested in CI
 

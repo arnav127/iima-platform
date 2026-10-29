@@ -222,3 +222,30 @@ func TestPython(t *testing.T) {
 		t.Fatal("python apps should be stripped")
 	}
 }
+
+func TestNextWithBackend(t *testing.T) {
+	a := app(t, "id = \"portfolioleague\"\nname = \"PL\"\npath = \"/portfolioleague\"\nshape = \"next\"\npocketbase = true\nbackend = \"main:app\"\nvolume = \"portfolioleague-data\"\n")
+	rel := Release{Version: "b1", ArtifactURL: "http://core/platform/artifacts/x.tar.gz", SHA256: strings.Repeat("d", 64)}
+	j, err := Build(Cluster{Datacenter: "dc1", Driver: "exec", PublicURL: "https://students.iima.ac.in"}, a, rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := map[string]*Task{}
+	for _, task := range j.TaskGroups[0].Tasks {
+		tasks[task.Name] = task
+	}
+	be, web := tasks["backend"], tasks["app"]
+	if be == nil || web == nil || tasks["pocketbase"] == nil || len(j.TaskGroups[0].Tasks) != 3 {
+		t.Fatalf("tasks: %v", j.TaskGroups[0].Tasks)
+	}
+	args := be.Config["args"].([]string)
+	if args[2] != "main:app" || args[6] != "127.0.0.1" || be.Lifecycle == nil || !be.Lifecycle.Sidecar {
+		t.Fatalf("backend: %v %+v", args, be.Lifecycle)
+	}
+	if web.Env["BACKEND_URL"] != "http://127.0.0.1:${NOMAD_PORT_backend}" || be.Env["POCKETBASE_URL"] == "" || len(be.Templates) != 1 {
+		t.Fatalf("wiring: web %v, backend %v", web.Env, be.Env)
+	}
+	if _, err := registry.Parse([]byte("id = \"g\"\nname = \"G\"\npath = \"/g\"\nshape = \"go\"\nbackend = \"main:app\"\n")); err == nil {
+		t.Fatal("backend on a Go app accepted")
+	}
+}
