@@ -289,3 +289,10 @@ func (s *Store) AddSigningKey(ctx context.Context, k SigningKey) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO signing_keys (kid, private_key, created_at) VALUES (?, ?, ?)`, k.KID, k.PrivateKey, k.CreatedAt.Unix())
 	return err
 }
+
+// DeleteSigningKey removes a retired key: tokens it signed stop verifying once apps refresh their
+// key set, so only delete keys older than the token lifetime.
+func (s *Store) DeleteSigningKey(ctx context.Context, kid string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM signing_keys WHERE kid = ?`, kid)
+	return err
+}

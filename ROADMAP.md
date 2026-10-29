@@ -103,8 +103,8 @@ are the steps that need the campus servers. Runbook: `docs/cluster.md`.
 ## Phase 9: operations
 - [ ] Prometheus + Grafana, Loki, Uptime Kuma (alerts to owners, status page), GlitchTip, Umami
 - [ ] Monthly restore drill; load test before events
-- [ ] App lifecycle: owners, review dates, archive mode
-- [ ] Maintainer handbook: add an app, rotate keys, restore a backup, hand over super admin
+- [x] App lifecycle: owners, review dates (flagged on the dashboard), stop and archive
+- [x] Maintainer handbook (`docs/handbook.md`): rotate keys (`core keys rotate|prune`), restore a backup, hand over super admin
 
 ## Later, when two or more apps ask for it
 Notifications (email, web push, Telegram), short links (`/go/...`), imgproxy, S3 storage (Garage or MinIO),

@@ -54,7 +54,8 @@ const usage = `usage:
   core superadmin add|remove EMAIL
   core superadmin list
   core roles set APP EMAIL [ROLE...]
-  core roles list APP`
+  core roles list APP
+  core keys list|rotate|prune          token signing keys (docs/handbook.md)`
 
 // command runs one admin command against the database, without starting the server.
 func command(args []string) error {
@@ -92,6 +93,8 @@ func command(args []string) error {
 			fmt.Printf("%s: %s %s\n", args[1], email, "done")
 		}
 		return err
+	case len(args) == 2 && args[0] == "keys":
+		return keysCommand(ctx, st, args[1])
 	case len(args) >= 3 && args[0] == "roles":
 		files, err := registry.LoadDirs(strings.Split(env("REGISTRY", "apps"), ",")...)
 		if err != nil {
@@ -230,4 +233,46 @@ func env(name, def string) string {
 		return v
 	}
 	return def
+}
+
+// keysCommand manages the keys core signs identity tokens with. Core signs with the newest key and
+// publishes every stored key, so rotating is: add a key, restart core (it then signs with the new
+// one; apps fetch the new key the first time they see its id), and after the token lifetime prune
+// the old one.
+func keysCommand(ctx context.Context, st *store.Store, sub string) error {
+	keys, err := st.SigningKeys(ctx)
+	if err != nil {
+		return err
+	}
+	switch sub {
+	case "list":
+		for i, k := range keys {
+			use := "published"
+			if i == 0 {
+				use = "signing"
+			}
+			fmt.Println(k.KID, k.CreatedAt.Format(time.RFC3339), use)
+		}
+		return nil
+	case "rotate":
+		k, err := token.NewKey()
+		if err != nil {
+			return err
+		}
+		if err := st.AddSigningKey(ctx, k); err != nil {
+			return err
+		}
+		fmt.Printf("added %s. Restart core to sign with it (nomad alloc restart <core alloc>); after %s, run core keys prune.\n", k.KID, env("TOKEN_TTL", "5m"))
+		return nil
+	case "prune":
+		// Keep the signing key and the one before it, for tokens minted just before a restart.
+		for _, k := range keys[min(2, len(keys)):] {
+			if err := st.DeleteSigningKey(ctx, k.KID); err != nil {
+				return err
+			}
+			fmt.Printf("deleted %s (%s)\n", k.KID, k.CreatedAt.Format(time.RFC3339))
+		}
+		return nil
+	}
+	return errors.New(usage)
 }

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/arnav127/iima-platform/core/attrs"
 	"github.com/arnav127/iima-platform/core/registry"
@@ -35,17 +36,23 @@ type adminData struct {
 
 // dashStats are the dashboard's numbers.
 type dashStats struct {
-	Total, Live, Manual, Routes, Waiting int
+	Total, Live, Manual, Routes, Waiting, Overdue int
 }
 
 type portalRow struct {
-	ID, Name, Path, Repo, Status string
+	ID, Name, Path, Repo, Status, Review string
 	Waiting                      bool // has settings waiting for approval
 }
 
 var adminPages = template.Must(template.Must(pages.Clone()).Funcs(template.FuncMap{
 	"has": func(list []string, v string) bool { return slices.Contains(list, v) },
 	"inc": func(i int) int { return i + 1 },
+	// overdue: the app's review date (YYYY-MM-DD) has passed, so its owners should confirm it is
+	// still needed (or archive it).
+	"overdue": func(review string) bool {
+		d, err := time.Parse("2006-01-02", review)
+		return err == nil && time.Now().After(d.AddDate(0, 0, 1))
+	},
 }).Parse(`
 {{define "adminnav"}}{{if .Message}}<div class="note ok">{{.Message}}</div>{{end}}{{if .Error}}<div class="note err">{{.Error}}</div>{{end}}{{end}}
 
@@ -60,6 +67,7 @@ var adminPages = template.Must(template.Must(pages.Clone()).Funcs(template.FuncM
 <div class="kpi"><b>{{.Live}}</b><span>{{if $.Actor.Super}}Deployed from GitHub{{else}}Your live apps{{end}}</span></div>
 <div class="kpi"><b>{{.Waiting}}</b><span>Waiting for approval</span></div>
 <div class="kpi"><b>{{.Routes}}</b><span>External routes</span></div>
+{{if .Overdue}}<div class="kpi"><b>{{.Overdue}}</b><span>Past their review date</span></div>{{end}}
 </div>
 {{if .Total}}<div class="section"><h2>Apps by how they run</h2>
 <div class="stats"><div class="stat y"><b>{{.Live}}</b><span>Deployed from GitHub</span></div><div class="stat g2"><b>{{.Manual}}</b><span>Set up by hand</span></div><div class="stat g"><b>{{.Routes}}</b><span>External routes</span></div><div class="stat d"><b>{{.Waiting}}</b><span>Waiting</span></div></div>
@@ -71,12 +79,12 @@ var adminPages = template.Must(template.Must(pages.Clone()).Funcs(template.FuncM
 </table></div>{{end}}{{end}}
 <div class="section"><h2>{{if .Actor.Super}}Deployed apps{{else}}Your apps{{end}}</h2>
 {{if .PortalApps}}<table><tr><th></th><th>App</th><th>Path</th><th>Repo</th><th>Status</th></tr>
-{{range $i, $a := .PortalApps}}<tr><td class="muted small">{{inc $i}}</td><td><a href="/admin/apps/{{.ID}}/deploy"><b>{{.Name}}</b></a></td><td><code>{{.Path}}</code></td><td class="muted">{{.Repo}}</td><td>{{template "statuspill" .Status}}{{if and .Waiting (eq .Status "approved")}} <span class="pill warn">change waiting</span>{{end}}</td></tr>{{end}}
+{{range $i, $a := .PortalApps}}<tr><td class="muted small">{{inc $i}}</td><td><a href="/admin/apps/{{.ID}}/deploy"><b>{{.Name}}</b></a></td><td><code>{{.Path}}</code></td><td class="muted">{{.Repo}}</td><td>{{template "statuspill" .Status}}{{if and .Waiting (eq .Status "approved")}} <span class="pill warn">change waiting</span>{{end}}{{if overdue .Review}} <span class="pill bad">review due</span>{{end}}</td></tr>{{end}}
 </table>{{else}}<p class="muted">Nothing here yet. <a href="/admin/apps/new">Connect a GitHub repo</a> to host your app on this site.</p>{{end}}</div>
 {{end}}
 <div class="section"><h2>Roles you manage</h2>
 {{if .Apps}}<table><tr><th>App</th><th>Path</th><th>Who may sign in</th><th>Roles</th></tr>
-{{range .Apps}}<tr><td><a href="/admin/apps/{{.ID}}"><b>{{.Name}}</b></a>{{if eq .Shape "external"}} <span class="pill acc">route</span>{{end}}</td><td><code>{{.Path}}</code></td><td>{{if eq .Login "external"}}any Google account{{else}}@iima.ac.in{{end}}</td><td>{{range $i, $r := .Roles}}{{if $i}}, {{end}}{{$r}}{{else}}<span class="muted">none</span>{{end}}</td></tr>{{end}}
+{{range .Apps}}<tr><td><a href="/admin/apps/{{.ID}}"><b>{{.Name}}</b></a>{{if eq .Shape "external"}} <span class="pill acc">route</span>{{end}}{{if overdue .Review}} <span class="pill bad">review due</span>{{end}}</td><td><code>{{.Path}}</code></td><td>{{if eq .Login "external"}}any Google account{{else}}@iima.ac.in{{end}}</td><td>{{range $i, $r := .Roles}}{{if $i}}, {{end}}{{$r}}{{else}}<span class="muted">none</span>{{end}}</td></tr>{{end}}
 </table>{{else}}<p class="muted">You don't manage roles in any app.</p>{{end}}</div>
 {{template "bottom" .}}{{end}}
 
@@ -237,6 +245,9 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 		}
 		st := &dashStats{}
 		for _, app := range s.registry().Apps() {
+			if d, err := time.Parse("2006-01-02", app.Review); err == nil && time.Now().After(d.AddDate(0, 0, 1)) && (a.Super || a.canManage(app.ID)) {
+				st.Overdue++
+			}
 			switch {
 			case app.Shape == registry.ShapeExternal:
 				st.Routes++

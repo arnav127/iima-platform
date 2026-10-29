@@ -521,7 +521,7 @@ func (s *Server) portalRows(r *http.Request, a *actor) ([]portalRow, error) {
 		if show == nil {
 			continue
 		}
-		rows = append(rows, portalRow{ID: pa.ID, Name: show.Name, Path: show.Path, Repo: pa.Repo, Status: pa.Status, Waiting: pending != nil})
+		rows = append(rows, portalRow{ID: pa.ID, Name: show.Name, Path: show.Path, Repo: pa.Repo, Status: pa.Status, Review: show.Review, Waiting: pending != nil})
 	}
 	return rows, nil
 }
