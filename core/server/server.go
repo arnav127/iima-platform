@@ -80,6 +80,7 @@ func (s *Server) Handler() http.Handler {
 	s.adminRoutes(mux)
 	mux.HandleFunc("GET /{$}", s.handleHome)
 	mux.HandleFunc("GET /platform/apps", s.handleHome) // the directory, also when a home app owns /
+	mux.HandleFunc("GET /platform/theme.js", s.handleThemeJS)
 	mux.HandleFunc("/", s.handleNotFound)
 	return mux
 }

@@ -58,20 +58,26 @@ var pageFuncs = template.FuncMap{
 // One stylesheet for every page, the platform's look: a top bar, then either a narrow card (sign-in
 // and messages) or a wide page of sections (directory, dashboard, admin).
 var pages = template.Must(template.New("").Funcs(pageFuncs).Parse(`
-{{define "icon"}}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{{if eq . "dashboard"}}<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>{{else if eq . "plus"}}<path d="M12 5v14M5 12h14"/>{{else if eq . "routes"}}<path d="M4 7h11l3 3-3 3H4z"/><path d="M20 17H9l-3-3"/>{{else if eq . "people"}}<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6"/><path d="M17 11a3 3 0 1 0 0-6M22 21c0-3-2-5-4-5.5"/>{{else if eq . "shield"}}<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>{{else if eq . "log"}}<path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h7M9 8h3"/>{{else if eq . "github"}}<path d="M9 19c-4 1.5-4-2-6-2.5M15 21v-3.5a3 3 0 0 0-1-2.5c3 0 6-1.5 6-6.5a5 5 0 0 0-1.5-3.5 4.5 4.5 0 0 0-.1-3.5s-1.2-.4-3.9 1.4a13 13 0 0 0-7 0C4.8 1.6 3.6 2 3.6 2a4.5 4.5 0 0 0-.1 3.5A5 5 0 0 0 2 9c0 5 3 6.5 6 6.5a3 3 0 0 0-1 2.5V21"/>{{else if eq . "apps"}}<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>{{else if eq . "out"}}<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/>{{end}}</svg>{{end}}
+{{define "icon"}}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{{if eq . "dashboard"}}<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>{{else if eq . "plus"}}<path d="M12 5v14M5 12h14"/>{{else if eq . "routes"}}<path d="M4 7h11l3 3-3 3H4z"/><path d="M20 17H9l-3-3"/>{{else if eq . "people"}}<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6"/><path d="M17 11a3 3 0 1 0 0-6M22 21c0-3-2-5-4-5.5"/>{{else if eq . "shield"}}<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>{{else if eq . "log"}}<path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h7M9 8h3"/>{{else if eq . "github"}}<path d="M9 19c-4 1.5-4-2-6-2.5M15 21v-3.5a3 3 0 0 0-1-2.5c3 0 6-1.5 6-6.5a5 5 0 0 0-1.5-3.5 4.5 4.5 0 0 0-.1-3.5s-1.2-.4-3.9 1.4a13 13 0 0 0-7 0C4.8 1.6 3.6 2 3.6 2a4.5 4.5 0 0 0-.1 3.5A5 5 0 0 0 2 9c0 5 3 6.5 6 6.5a3 3 0 0 0-1 2.5V21"/>{{else if eq . "apps"}}<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>{{else if eq . "theme"}}<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/>{{else if eq . "out"}}<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/>{{end}}</svg>{{end}}
 
 {{define "top"}}<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} · IIMA Students</title>
+<script src="/platform/theme.js"></script>
 <style>
-:root{color-scheme:light dark;
---fg:#1d1d1d;--muted:#6b6b68;--faint:#8e8e8a;--bg:#dcdcd9;--rail:#cfcfcb;--side:#e3e3e0;--panel:#efefec;--card:#f8f8f4;
+:root{color-scheme:light;
+--fg:#1d1d1d;--muted:#6b6b68;--faint:#8e8e8a;--bg:#dcdcd9;--side:#e3e3e0;--panel:#efefec;--card:#f8f8f4;
 --rule:#1d1d1d;--line:#d5d5d0;--soft:#e7e7e3;--accent:#eadc62;--accent-fg:#1d1d1d;--ink:#1d1d1d;--ink-fg:#fafaf7;
 --grey:#b9b9b5;--grey-2:#6f6f6c;--ok:#1d1d1d;--bad:#b42318;--bad-soft:#f6e1de;--radius:4px}
-@media (prefers-color-scheme:dark){:root{
---fg:#ececea;--muted:#a3a3a0;--faint:#7d7d7a;--bg:#0f0f0f;--rail:#1a1a1a;--side:#161616;--panel:#1d1d1d;--card:#242424;
+/* dark: the system's choice, unless the theme button picked one (data-theme on <html>) */
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark;
+--fg:#ececea;--muted:#a3a3a0;--faint:#7d7d7a;--bg:#0f0f0f;--side:#161616;--panel:#1d1d1d;--card:#242424;
 --rule:#ececea;--line:#363636;--soft:#2b2b2b;--accent:#e6d457;--accent-fg:#141414;--ink:#ececea;--ink-fg:#141414;
 --grey:#5c5c5a;--grey-2:#8f8f8c;--bad:#f2867b;--bad-soft:#3d1a17}}
+:root[data-theme=dark]{color-scheme:dark;
+--fg:#ececea;--muted:#a3a3a0;--faint:#7d7d7a;--bg:#0f0f0f;--side:#161616;--panel:#1d1d1d;--card:#242424;
+--rule:#ececea;--line:#363636;--soft:#2b2b2b;--accent:#e6d457;--accent-fg:#141414;--ink:#ececea;--ink-fg:#141414;
+--grey:#5c5c5a;--grey-2:#8f8f8c;--bad:#f2867b;--bad-soft:#3d1a17}
 *{box-sizing:border-box}
 body{margin:0;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--fg);background:var(--bg)}
 a{color:inherit;text-decoration:none}a:hover{text-decoration:underline}
@@ -91,13 +97,8 @@ p{margin:.45rem 0}.muted{color:var(--muted)}.small{font-size:.84rem}
 .who{font-size:.86rem;color:var(--muted);display:flex;gap:.75rem;align-items:center}
 main.pub{max-width:72rem;margin:0 auto;padding:2rem 1.25rem 4rem}main.narrow{max-width:27rem;padding-top:3.5rem}
 
-/* admin shell: icon rail, sidebar, main panel */
-.app{display:grid;grid-template-columns:52px 228px 1fr;min-height:100vh}
-.rail{background:var(--rail);display:flex;flex-direction:column;align-items:center;gap:.9rem;padding:1rem 0;border-right:1px solid var(--line)}
-.rail .logo{width:28px;height:28px;display:grid;place-items:center;color:var(--fg)}
-.rail .ws{width:30px;height:30px;display:grid;place-items:center;background:var(--accent);color:var(--accent-fg);border:1.5px solid var(--rule);font-weight:800;font-size:.56rem;letter-spacing:.02em;border-radius:2px;text-decoration:none}
-.rail .plus{color:var(--fg);display:grid;place-items:center;width:30px;height:30px;text-decoration:none}
-.rail .grow{flex:1}.rail hr{width:24px;border:0;border-top:1px solid var(--grey)}
+/* admin shell: sidebar and main panel */
+.app{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
 .side{background:var(--side);padding:1.25rem .9rem;display:flex;flex-direction:column;gap:.4rem;border-right:1px solid var(--line)}
 .side .title{font-weight:700;font-size:1.08rem;padding:0 .4rem .5rem}
 .seg{display:grid;grid-template-columns:1fr 1fr;border:1.5px solid var(--rule);margin:0 .2rem .8rem;font-size:.85rem}
@@ -109,8 +110,7 @@ main.pub{max-width:72rem;margin:0 auto;padding:2rem 1.25rem 4rem}main.narrow{max
 .side .me{margin-top:auto;font-size:.8rem;color:var(--muted);padding:0 .6rem;word-break:break-all}
 .main{background:var(--panel);padding:1.5rem 2rem 4rem;min-width:0}
 .main>.head{border-bottom:2px solid var(--rule);padding-bottom:1rem;margin-bottom:1.5rem}
-@media (max-width:860px){.app{grid-template-columns:1fr}.rail{display:none}.side{border-right:0;border-bottom:1px solid var(--line)}.side nav{display:flex;flex-wrap:wrap;gap:.2rem}.side hr,.side .me{display:none}.main{padding:1.25rem 1rem 3rem}}
-
+@media (max-width:860px){.app{grid-template-columns:1fr}.side{border-right:0;border-bottom:1px solid var(--line)}.side nav{display:flex;flex-wrap:wrap;gap:.2rem}.side hr,.side .me{display:none}.main{padding:1.25rem 1rem 3rem}}
 /* blocks */
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:1.5rem}
 .section{background:var(--card);border-radius:var(--radius);padding:1.2rem 1.4rem 1.3rem;margin:0 0 1rem;box-shadow:0 1px 2px rgba(0,0,0,.04)}
@@ -162,12 +162,11 @@ input:focus,select:focus{outline:2px solid var(--accent);border-color:var(--rule
 .btn:hover{text-decoration:none;opacity:.88}.btn.alt,.btn.ghost{background:transparent;color:var(--fg)}.btn.yellow{background:var(--accent);color:var(--accent-fg)}
 .btn.sm{padding:.28rem .65rem;font-size:.82rem}.btn.danger{background:transparent;border-color:var(--bad);color:var(--bad)}
 .dev{border-top:1px dashed var(--line);margin-top:1.25rem;padding-top:.75rem}
+.theme{display:inline-flex;gap:.45rem;align-items:center;background:none;border:0;padding:0;font:inherit;color:var(--muted);cursor:pointer}.theme:hover{color:var(--fg)}
+.side nav .theme{padding:.42rem .6rem;width:100%;text-align:left}
 </style></head><body>
 {{if .Shell}}<div class="app">
-<aside class="rail"><a class="logo" href="/platform/apps" title="IIMA Students"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1l3 8 8 3-8 3-3 8-3-8-8-3 8-3z"/></svg></a><hr>
-<a class="ws" href="/admin" title="Dashboard">IIMA</a><a class="plus" href="/admin/apps/new" title="Build an app">{{template "icon" "plus"}}</a>
-<span class="grow"></span><a class="plus" href="/auth/logout" title="Sign out">{{template "icon" "out"}}</a></aside>
-<aside class="side"><div class="title">IIMA Students</div>
+<aside class="side"><a class="title brand" href="/platform/apps"><span class="mark">IIMA</span>Students</a>
 <div class="seg"><a class="on" href="/admin">Admin</a><a href="/platform/apps">Site</a></div>
 <nav><a href="/admin"{{if eq .Title "Dashboard"}} class="on"{{end}}>{{template "icon" "dashboard"}}Dashboard{{with .WaitingCount}}<span class="count pill warn">{{.}} waiting</span>{{end}}</a>
 <a href="/admin/apps/new"{{if eq .Title "Connect an app"}} class="on"{{end}}>{{template "icon" "plus"}}Build an app</a>
@@ -176,13 +175,13 @@ input:focus,select:focus{outline:2px solid var(--accent);border-color:var(--rule
 <a href="/admin/super-admins"{{if eq .Title "Super admins"}} class="on"{{end}}>{{template "icon" "shield"}}Super admins</a>
 <a href="/admin/audit"{{if eq .Title "Audit log"}} class="on"{{end}}>{{template "icon" "log"}}Audit log</a>
 <a href="/admin/github"{{if eq .Title "GitHub App"}} class="on"{{end}}>{{template "icon" "github"}}GitHub App</a>{{end}}</nav><hr>
-<nav><a href="/platform/apps">{{template "icon" "apps"}}All apps</a><a href="/auth/logout">{{template "icon" "out"}}Sign out</a></nav>
+<nav><a href="/platform/apps">{{template "icon" "apps"}}All apps</a><button class="theme" type="button" data-theme-toggle>{{template "icon" "theme"}}Light / dark</button><a href="/auth/logout">{{template "icon" "out"}}Sign out</a></nav>
 <div class="me">{{.Who}}</div></aside>
 <main class="main">{{else}}
 <header class="bar"><div class="in">
 <a class="brand" href="/"><span class="mark">IIMA</span>Students</a>
 <nav><a href="/platform/apps">Apps</a>{{if .Who}}<a href="/admin">Dashboard{{with .WaitingCount}} <span class="pill warn">{{.}} waiting</span>{{end}}</a><a href="/admin/apps/new">Build an app</a>{{end}}</nav>
-<div class="who">{{if .Who}}<span>{{.Who}}</span><a href="/auth/logout">Sign out</a>{{else}}<a class="btn sm" href="/auth/login?rd=/admin">Sign in</a>{{end}}</div>
+<div class="who"><button class="theme" type="button" data-theme-toggle title="Light / dark">{{template "icon" "theme"}}</button>{{if .Who}}<span>{{.Who}}</span><a href="/auth/logout">Sign out</a>{{else}}<a class="btn sm" href="/auth/login?rd=/admin">Sign in</a>{{end}}</div>
 </div></header>
 <main class="pub{{if not .Wide}} narrow{{end}}">{{if not .Wide}}<div class="card">{{end}}{{end}}{{end}}
 {{define "bottom"}}{{if .Shell}}</main></div>{{else}}{{if not .Wide}}</div>{{end}}</main>{{end}}</body></html>{{end}}
@@ -252,6 +251,29 @@ func (s *Server) serverError(w http.ResponseWriter, what string, err error) {
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	s.render(w, http.StatusOK, "home", pageData{Title: "Apps", Session: s.session(r), Apps: s.registry().Apps(), Wide: true})
+}
+
+// themeJS applies the theme chosen with the light / dark button (kept in this browser) before the
+// page draws, and switches it. A file, not inline, because the gateway's CSP runs scripts from files
+// only.
+const themeJS = `(function () {
+  var key = "iima-theme", root = document.documentElement;
+  try { var saved = localStorage.getItem(key); if (saved) root.dataset.theme = saved; } catch (e) {}
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("[data-theme-toggle]");
+    if (!b) return;
+    var now = root.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    var next = now === "dark" ? "light" : "dark";
+    root.dataset.theme = next;
+    try { localStorage.setItem(key, next); } catch (e) {}
+  });
+})();
+`
+
+func (s *Server) handleThemeJS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write([]byte(themeJS))
 }
 
 func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
