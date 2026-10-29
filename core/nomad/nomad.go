@@ -84,23 +84,74 @@ func (c *Client) SetSecret(ctx context.Context, path, key string, value *string)
 	return c.call(ctx, http.MethodPut, "/v1/var/"+path+q, map[string]any{"Path": path, "Items": items}, nil)
 }
 
-// EnsureHostVolume creates a dynamic host volume (plugin mkdir) unless one with that name exists.
-// Nomad picks the node; the app's job is then pinned to it by the volume.
-func (c *Client) EnsureHostVolume(ctx context.Context, name string) error {
-	var vols []struct{ Name string }
-	if err := c.call(ctx, http.MethodGet, "/v1/volumes?type=host", nil, &vols); err != nil {
-		return err
+// HostVolume is an app's data volume as Nomad sees it.
+type HostVolume struct {
+	ID, Name, NodeID, NodeName, State string
+	HostPath                          string // the folder on that node
+}
+
+// Node is a Nomad client that can hold volumes.
+type Node struct {
+	ID, Name, Status string
+}
+
+// Nodes lists the cluster's clients.
+func (c *Client) Nodes(ctx context.Context) ([]Node, error) {
+	var ns []Node
+	err := c.call(ctx, http.MethodGet, "/v1/nodes", nil, &ns)
+	return ns, err
+}
+
+// FindHostVolume returns the dynamic host volume with that name, or nil when there is none.
+func (c *Client) FindHostVolume(ctx context.Context, name string) (*HostVolume, error) {
+	var stubs []struct{ ID, Name, NodeID string }
+	if err := c.call(ctx, http.MethodGet, "/v1/volumes?type=host", nil, &stubs); err != nil {
+		return nil, err
 	}
-	for _, v := range vols {
-		if v.Name == name {
-			return nil
+	for _, st := range stubs {
+		if st.Name != name {
+			continue
 		}
+		var v HostVolume
+		if err := c.call(ctx, http.MethodGet, "/v1/volume/host/"+url.PathEscape(st.ID), nil, &v); err != nil {
+			return nil, err
+		}
+		if ns, err := c.Nodes(ctx); err == nil {
+			for _, n := range ns {
+				if n.ID == v.NodeID {
+					v.NodeName = n.Name
+				}
+			}
+		}
+		return &v, nil
+	}
+	return nil, nil
+}
+
+// EnsureHostVolume creates a dynamic host volume (plugin mkdir) unless one with that name exists.
+// With nodeID empty, Nomad picks the node; the app's job is then pinned to it by the volume.
+func (c *Client) EnsureHostVolume(ctx context.Context, name string) error {
+	_, err := c.CreateHostVolume(ctx, name, "")
+	return err
+}
+
+// CreateHostVolume creates the volume on the given node (or one Nomad picks) and returns it; an
+// existing volume with that name is returned as it is.
+func (c *Client) CreateHostVolume(ctx context.Context, name, nodeID string) (*HostVolume, error) {
+	if v, err := c.FindHostVolume(ctx, name); err != nil || v != nil {
+		return v, err
 	}
 	vol := map[string]any{
 		"Name": name, "Namespace": "default", "PluginID": "mkdir",
 		"RequestedCapabilities": []map[string]string{{"AccessMode": "single-node-single-writer", "AttachmentMode": "file-system"}},
 	}
-	return c.call(ctx, http.MethodPut, "/v1/volume/host/create", map[string]any{"Volume": vol}, nil)
+	if nodeID != "" {
+		vol["NodeID"] = nodeID
+	}
+	if err := c.call(ctx, http.MethodPut, "/v1/volume/host/create", map[string]any{"Volume": vol}, nil); err != nil {
+		return nil, err
+	}
+	return c.FindHostVolume(ctx, name)
 }
 
 // Status is what the portal shows about a running app.

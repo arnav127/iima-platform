@@ -32,6 +32,7 @@ type fakeNomad struct {
 	mu   sync.Mutex
 	jobs []jobgen.Job
 	vars map[string]map[string]string
+	vols map[string]string // volume name -> node id
 }
 
 func (f *fakeNomad) serve(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +61,24 @@ func (f *fakeNomad) serve(w http.ResponseWriter, r *http.Request) {
 			delete(f.vars, path)
 		}
 	case r.URL.Path == "/v1/volumes":
-		w.Write([]byte(`[]`))
+		var out []map[string]string
+		for name, node := range f.vols {
+			out = append(out, map[string]string{"ID": "id-" + name, "Name": name, "NodeID": node})
+		}
+		json.NewEncoder(w).Encode(out)
+	case strings.HasPrefix(r.URL.Path, "/v1/volume/host/id-"):
+		name := strings.TrimPrefix(r.URL.Path, "/v1/volume/host/id-")
+		json.NewEncoder(w).Encode(map[string]string{"ID": "id-" + name, "Name": name, "NodeID": f.vols[name], "HostPath": "/opt/nomad/data/host_volumes/id-" + name})
+	case r.URL.Path == "/v1/volume/host/create":
+		var body struct{ Volume struct{ Name, NodeID string } }
+		json.NewDecoder(r.Body).Decode(&body)
+		if f.vols == nil {
+			f.vols = map[string]string{}
+		}
+		f.vols[body.Volume.Name] = body.Volume.NodeID
+		w.Write([]byte(`{}`))
+	case r.URL.Path == "/v1/nodes":
+		w.Write([]byte(`[{"ID":"n1","Name":"iima-node-1","Status":"ready"},{"ID":"n2","Name":"iima-node-2","Status":"ready"}]`))
 	default:
 		w.Write([]byte(`{}`))
 	}
@@ -346,5 +364,45 @@ func TestStopAndArchive(t *testing.T) {
 	}
 	if err := e.p.Deploy(ctx, "p25owner@iima.ac.in", "quiz", "build-bbbbbbb"); !isUserError(err) {
 		t.Fatalf("deploying an archived app: %v", err)
+	}
+}
+
+func TestBringExistingData(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	e.gh.AddRepo("club/quiz", 2, map[string][]byte{"app.toml": []byte(quizToml)})
+	e.p.Request(ctx, "p25owner@iima.ac.in", "club/quiz")
+	pa, _ := e.st.PortalApp(ctx, "quiz")
+	d, err := e.p.DataStatus(ctx, pa)
+	if err != nil || d.Volume != "quiz-data" || d.Found != nil || len(d.Nodes) != 2 {
+		t.Fatalf("before: %+v %v", d, err)
+	}
+	v, err := e.p.PrepareData(ctx, "super@iima.ac.in", pa, "n2")
+	if err != nil || e.nm.vols["quiz-data"] != "n2" || v.NodeName != "iima-node-2" || v.HostPath == "" {
+		t.Fatalf("prepare: %+v %v", v, err)
+	}
+	if _, err := e.p.PrepareData(ctx, "super@iima.ac.in", pa, "n1"); !isUserError(err) {
+		t.Fatal("a second volume was allowed")
+	}
+
+	// Approved with a build, but deploys wait for the data.
+	e.p.Approve(ctx, "super@iima.ac.in", "quiz")
+	e.gh.AddRelease("club/quiz", "build-aaaaaaa", "", []byte("one"))
+	e.p.Sync(ctx)
+	if e.nm.count() != 0 {
+		t.Fatal("deployed before the data was in place")
+	}
+	if err := e.p.Deploy(ctx, "p25owner@iima.ac.in", "quiz", "build-aaaaaaa"); !isUserError(err) {
+		t.Fatalf("manual deploy while held: %v", err)
+	}
+	if err := e.p.DataReady(ctx, "super@iima.ac.in", "quiz"); err != nil {
+		t.Fatal(err)
+	}
+	e.p.Sync(ctx)
+	if e.nm.count() != 1 {
+		t.Fatal("not deployed after the data was in place")
+	}
+	if _, err := e.p.PrepareData(ctx, "super@iima.ac.in", pa, "n1"); !isUserError(err) {
+		t.Fatal("prepare after the app has its own data")
 	}
 }

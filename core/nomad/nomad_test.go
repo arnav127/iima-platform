@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -18,6 +19,7 @@ type fakeNomad struct {
 	index   uint64
 	jobs    []string
 	volumes []string
+	placed  string // the node the last volume was asked for
 }
 
 func (f *fakeNomad) handler(t *testing.T) http.Handler {
@@ -53,16 +55,24 @@ func (f *fakeNomad) handler(t *testing.T) http.Handler {
 	mux.HandleFunc("GET /v1/volumes", func(w http.ResponseWriter, r *http.Request) {
 		var out []map[string]string
 		for _, v := range f.volumes {
-			out = append(out, map[string]string{"Name": v})
+			out = append(out, map[string]string{"ID": "id-" + v, "Name": v, "NodeID": "n1"})
 		}
 		json.NewEncoder(w).Encode(out)
 	})
+	mux.HandleFunc("GET /v1/volume/host/{id}", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.PathValue("id"), "id-")
+		json.NewEncoder(w).Encode(map[string]string{"ID": r.PathValue("id"), "Name": name, "NodeID": "n1", "State": "ready", "HostPath": "/opt/nomad/data/host_volumes/" + r.PathValue("id")})
+	})
+	mux.HandleFunc("GET /v1/nodes", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[{"ID":"n1","Name":"iima-node-2","Status":"ready"}]`))
+	})
 	mux.HandleFunc("PUT /v1/volume/host/create", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Volume struct{ Name, PluginID string }
+			Volume struct{ Name, PluginID, NodeID string }
 		}
 		json.NewDecoder(r.Body).Decode(&body)
 		f.volumes = append(f.volumes, body.Volume.Name)
+		f.placed = body.Volume.NodeID
 		w.Write([]byte("{}"))
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +119,13 @@ func TestClient(t *testing.T) {
 	}
 	if len(f.volumes) != 1 {
 		t.Fatalf("volume created %d times", len(f.volumes))
+	}
+	v, err := c.CreateHostVolume(ctx, "old-data", "n1")
+	if err != nil || f.placed != "n1" || v.NodeName != "iima-node-2" || v.HostPath == "" {
+		t.Fatalf("volume on a chosen node: %+v %v (placed %q)", v, err, f.placed)
+	}
+	if v, _ := c.FindHostVolume(ctx, "missing"); v != nil {
+		t.Fatal("found a volume that does not exist")
 	}
 
 	bad := &Client{Addr: srv.URL, Token: "nope"}

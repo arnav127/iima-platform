@@ -43,13 +43,12 @@ What the platform does with data:
 
 Steps:
 
-1. **Create the volume yourself, on the node you choose**, before connecting the app (the portal
-   creates one only when none exists, and then Nomad picks the node):
-   ```
-   cp deploy/nomad/volume.hcl.example betamarkets-data.hcl   # set name and the node
-   nomad volume create betamarkets-data.hcl
-   nomad volume status -verbose betamarkets-data             # shows the folder on that node
-   ```
+1. **Create the volume on the node you choose**, before the app's first deploy. Request the app in
+   the portal (`/admin/apps/new`), then as a super admin open its page: the **Data** section creates the
+   volume on the node you pick, shows its folder and the copy commands, and holds every deploy until
+   you click **Data is in place**. (By hand instead, for an app in `apps/`:
+   `nomad volume create` with `deploy/nomad/volume.hcl.example`, then `nomad volume status -verbose`
+   for the folder.)
 2. **Stop the app on PM2** (`pm2 stop betamarkets-pocketbase` and the app), so its SQLite files stop
    changing. The route keeps pointing at it; visitors see it down for the minutes this takes.
 3. **Copy the contents in**, as root on the node:
@@ -57,7 +56,7 @@ Steps:
    rsync -a /home/beta/betamarkets/pb_data/ <host path>/      # or scp from the old server
    chown -R nobody:nogroup <host path>                         # apps run as nobody (exec driver)
    ```
-4. **Connect the repo and approve it** (`/admin/apps/new`, same `id` and `volume`). Set its secrets on
+4. **Approve it and click Data is in place** (same `id` and `volume` as before). Set its secrets on
    the app's page first (`PB_ADMIN_EMAIL`, `PB_ADMIN_PASSWORD` for a standalone PocketBase). The first
    deploy starts on the copied data; PocketBase runs any pending migrations then (BetaMarkets moves
    from PocketBase 0.39 to 0.40 and locks its collections down), one more reason the old folder stays.

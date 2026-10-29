@@ -1,0 +1,53 @@
+# Builds core for the cluster when a tag core/vX.Y.Z is pushed, and publishes a GitHub release with
+# core.tar.gz and its SHA-256. The tarball is what deploy/nomad/core.nomad.hcl downloads:
+#   ./core           the Linux binary
+#   ./apps/          the hand-made registry at that commit
+#   ./cluster.toml   deploy/nomad/cluster.toml
+#
+#   git tag core/v0.4.0 && git push origin core/v0.4.0
+#   nomad job run -var version=v0.4.0 -var artifact=<core.tar.gz URL> -var sha256=<hash> deploy/nomad/core.nomad.hcl
+name: release-core
+
+on:
+  push:
+    tags: ["core/v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+      - name: Test
+        working-directory: core
+        env:
+          GOWORK: "off"
+        run: |
+          go vet ./...
+          go test ./...
+          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: Build and pack
+        env:
+          GOWORK: "off"
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p dist
+          (cd core && GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o ../dist/core ./cmd/core)
+          cp -r apps dist/apps
+          cp deploy/nomad/cluster.toml dist/cluster.toml
+          tar -czf core.tar.gz -C dist .
+          sha256sum core.tar.gz > core.tar.gz.sha256
+          cat core.tar.gz.sha256
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          gh release create "$tag" core.tar.gz core.tar.gz.sha256 --repo "$GITHUB_REPOSITORY" \
+            --title "$tag" --notes "core ${tag#core/} for the cluster. SHA-256: $(cut -d' ' -f1 core.tar.gz.sha256)"

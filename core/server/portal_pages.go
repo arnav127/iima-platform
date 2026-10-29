@@ -43,6 +43,7 @@ type deployData struct {
 	Stderr   string
 	Shapes   []string
 	Portal   bool // for the admin nav: the portal is on
+	Data     *portal.Data
 }
 
 var deployPages = template.Must(template.Must(adminPages.Clone()).Funcs(template.FuncMap{
@@ -94,6 +95,20 @@ var deployPages = template.Must(template.Must(adminPages.Clone()).Funcs(template
 {{else}}<p class="muted">Not running yet. The newest build deploys shortly after approval.</p>{{end}}
 <form class="inline" method="post" action="/admin/apps/{{$id}}/autodeploy"><input type="hidden" name="on" value="{{if $a.AutoDeploy}}0{{else}}1{{end}}">
 <span>Auto-deploy from <code>{{$a.Branch}}</code>: <b>{{if $a.AutoDeploy}}on{{else}}off{{end}}</b></span><button class="btn sm ghost" type="submit">Turn {{if $a.AutoDeploy}}off{{else}}on{{end}}</button></form></div>{{end}}
+
+{{with .Data}}{{if $.Actor.Super}}<div class="section" id="data"><h2>Data</h2>
+{{if .Found}}<dl class="kv"><dt>Volume</dt><dd><code>{{.Found.Name}}</code> on <b>{{.Found.NodeName}}</b></dd><dt>Folder on the node</dt><dd><code>{{.Found.HostPath}}</code></dd></dl>
+{{if .Held}}<div class="note warn">Deploys are held until the app's existing data is in this volume. On <b>{{.Found.NodeName}}</b>, with the old app stopped:</div>
+<pre>rsync -a /path/to/old/pb_data/ {{.Found.HostPath}}/
+chown -R nobody:nogroup {{.Found.HostPath}}</pre>
+<form class="inline" method="post" action="/admin/apps/{{$id}}/data/ready"><button class="btn yellow" type="submit">Data is in place</button></form>
+<p class="hint">Then the newest build deploys on the copied data. Keep the old folder until the app has run here for a while: it is the way back (docs/porting.md).</p>
+{{else}}<p class="hint">The app's PocketBase data lives here; the app is pinned to this node.</p>{{end}}
+{{else}}<p>The app has no data volume yet: its first deploy creates an empty one on a node Nomad picks.</p>
+<p class="muted small">Moving an app that already has data (its <code>pb_data</code> under PM2)? Create the volume now on the node that should hold it; deploys then wait until the data is copied in.</p>
+<form class="inline" method="post" action="/admin/apps/{{$id}}/data/prepare"><select name="node">{{range .Nodes}}<option value="{{.ID}}">{{.Name}}{{if ne .Status "ready"}} ({{.Status}}){{end}}</option>{{end}}</select>
+<button class="btn" type="submit">Create <code>{{.Volume}}</code> here</button></form>{{end}}
+</div>{{end}}{{end}}
 
 <div class="section" id="builds"><h2>Builds</h2>
 {{if .Releases}}<table><tr><th>Build</th><th>Commit</th><th>Fetched (IST)</th><th>Size</th><th></th></tr>
@@ -286,6 +301,11 @@ func (s *Server) portalRoutes(mux *http.ServeMux) {
 				break
 			}
 		}
+		if a.Super {
+			if d.Data, err = p.DataStatus(ctx, pa); err != nil {
+				s.cfg.Log.Warn("portal: data volume", "app", pa.ID, "err", err)
+			}
+		}
 		if pa.Status == store.AppApproved {
 			d.Status = p.Status(ctx, pa.ID)
 			if d.Status != nil && d.Status.Release != "" {
@@ -368,6 +388,16 @@ func (s *Server) portalRoutes(mux *http.ServeMux) {
 			p.Kick()
 		}
 		return "Saved.", s.cfg.Store.SetAutoDeploy(r.Context(), a.Email, pa.ID, on)
+	}))
+	mux.HandleFunc("POST /admin/apps/{app}/data/prepare", super(func(a *actor, pa *store.PortalApp, r *http.Request) (string, error) {
+		v, err := p.PrepareData(r.Context(), a.Email, pa, r.PostFormValue("node"))
+		if err != nil {
+			return "", err
+		}
+		return "Created " + v.Name + " on " + v.NodeName + ". Copy the old data in, then click Data is in place.", nil
+	}))
+	mux.HandleFunc("POST /admin/apps/{app}/data/ready", super(func(a *actor, pa *store.PortalApp, r *http.Request) (string, error) {
+		return "Released. The newest build deploys on the copied data within a minute.", p.DataReady(r.Context(), a.Email, pa.ID)
 	}))
 	mux.HandleFunc("POST /admin/apps/{app}/stop", owner(func(a *actor, pa *store.PortalApp, r *http.Request) (string, error) {
 		return "Stopped. Deploy a build to bring it back.", p.Stop(r.Context(), a.Email, pa.ID)

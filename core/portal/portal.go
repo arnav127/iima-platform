@@ -544,6 +544,9 @@ func (p *Portal) deployLocked(ctx context.Context, actor, id, tag string) error 
 	if pa.Status != store.AppApproved || app == nil {
 		return UserError("A super admin has to approve this app before it can deploy.")
 	}
+	if hold, _ := p.cfg.Store.Setting(ctx, holdKey(id)); hold != "" {
+		return UserError("Deploys wait for the app's existing data: copy it into the volume, then click Data is in place.")
+	}
 	rel, err := p.release(ctx, id, tag)
 	if err != nil {
 		return err
@@ -1006,4 +1009,69 @@ func (p *Portal) DeleteRoute(ctx context.Context, actor, id string) error {
 // GatewayRoutes is Traefik's configuration for the external routes, for /platform/routes.
 func (p *Portal) GatewayRoutes() gateway.Config {
 	return gateway.Routes(p.Registry().Apps())
+}
+
+// ---- bringing existing data ----
+
+func holdKey(id string) string { return "data_hold:" + id }
+
+// Data describes an app's data volume for its page.
+type Data struct {
+	Volume string            // its name ("" for apps without PocketBase)
+	Found  *nomad.HostVolume // nil until it exists
+	Nodes  []nomad.Node      // where it could be created
+	Held   bool              // deploys wait until the old data is copied in
+}
+
+// DataStatus reports the app's volume, where it is, and whether deploys are held for it.
+func (p *Portal) DataStatus(ctx context.Context, pa *store.PortalApp) (*Data, error) {
+	live, pending := p.Settings(pa)
+	a := live
+	if a == nil {
+		a = pending
+	}
+	if a == nil || a.Volume == "" || p.cfg.Nomad == nil {
+		return nil, nil
+	}
+	d := &Data{Volume: a.Volume}
+	hold, _ := p.cfg.Store.Setting(ctx, holdKey(pa.ID))
+	d.Held = hold != ""
+	var err error
+	if d.Found, err = p.cfg.Nomad.FindHostVolume(ctx, a.Volume); err != nil {
+		return nil, err
+	}
+	if d.Found == nil {
+		if d.Nodes, err = p.cfg.Nomad.Nodes(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return d, nil
+}
+
+// PrepareData creates the app's volume on the node that will hold its data and holds every deploy
+// until someone confirms the old pb_data is copied in (super admins; docs/porting.md).
+func (p *Portal) PrepareData(ctx context.Context, actor string, pa *store.PortalApp, nodeID string) (*nomad.HostVolume, error) {
+	d, err := p.DataStatus(ctx, pa)
+	if err != nil || d == nil {
+		return nil, UserError("This app has no data volume (or Nomad is not configured).")
+	}
+	if d.Found != nil {
+		return nil, UserError("Its volume already exists on " + d.Found.NodeName + ".")
+	}
+	if dep, _ := p.cfg.Store.Deploys(ctx, pa.ID, 1); len(dep) > 0 {
+		return nil, UserError("The app has deployed already; it has its own data now.")
+	}
+	if err := p.cfg.Store.SetSettings(ctx, actor, map[string]string{holdKey(pa.ID): "1"}); err != nil {
+		return nil, err
+	}
+	return p.cfg.Nomad.CreateHostVolume(ctx, d.Volume, nodeID)
+}
+
+// DataReady releases the hold: the next sync deploys the newest build on the copied data.
+func (p *Portal) DataReady(ctx context.Context, actor, id string) error {
+	if err := p.cfg.Store.SetSettings(ctx, actor, map[string]string{holdKey(id): ""}); err != nil {
+		return err
+	}
+	p.Kick()
+	return nil
 }

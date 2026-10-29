@@ -54,7 +54,7 @@ are the steps that need the campus servers. Runbook: `docs/cluster.md`.
 - [ ] Traefik live on the entry node with the certificate
 - [ ] Off-box backups (needs a place to put them: see open questions)
 - [ ] Core and Auxesis deployed as jobs; firewall applied
-- [ ] Release artifacts for core and Auxesis (built by hand until the CI workflow in phase 8)
+- [x] Release artifacts: core from a `core/v*` tag (`release-core` workflow); apps from the shared `build-app` workflow
 - [ ] Cut over `/auxesiscapital` from Apache to Traefik; keep a rollback path
 
 ## Phase 5: the other Go + PocketBase apps

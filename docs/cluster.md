@@ -60,6 +60,12 @@ nomad alloc exec -task core <alloc id> local/core superadmin add you@iima.ac.in
 
 The Google OAuth client needs `https://students.iima.ac.in/auth/callback` as a redirect URI.
 
+The core tarball comes from a release: push a tag `core/vX.Y.Z` and the `release-core` workflow
+builds it and publishes `core.tar.gz` with its SHA-256 (in the release notes and `core.tar.gz.sha256`).
+Use the release asset's download URL as `artifact`. While this repo is private, Nomad cannot download
+release assets without a token: make the repo public, or copy `core.tar.gz` to a web server the
+cluster can reach (any URL works; the SHA-256 is what Nomad checks).
+
 ## 4. Turn on the deploy portal
 
 ```
