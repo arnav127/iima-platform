@@ -22,6 +22,8 @@ experimental:
   localPlugins:
     platformstrip:
       moduleName: github.com/arnav127/iima-platform/deploy/traefik/plugins/platformstrip
+    proxyreverse:
+      moduleName: github.com/arnav127/iima-platform/deploy/traefik/plugins/proxyreverse
 
 log:
   level: INFO

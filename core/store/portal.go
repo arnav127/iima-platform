@@ -482,3 +482,63 @@ func (s *Store) SetSettings(ctx context.Context, actor string, kv map[string]str
 		return audit(ctx, tx, NormEmail(actor), "settings.set", "", "", keys)
 	})
 }
+
+// ---- external routes ----
+
+// External routes send a path to a host and port outside the platform (apps not ported yet). Their
+// settings are a registry.App with shape "external", as JSON.
+const routesSchema = `
+CREATE TABLE IF NOT EXISTS external_routes (
+	id         TEXT PRIMARY KEY,
+	settings   TEXT NOT NULL,
+	updated_by TEXT NOT NULL,
+	updated_at INTEGER NOT NULL
+);
+`
+
+type ExternalRoute struct {
+	ID        string
+	Settings  string
+	UpdatedBy string
+	UpdatedAt time.Time
+}
+
+func (s *Store) ExternalRoutes(ctx context.Context) ([]ExternalRoute, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, settings, updated_by, updated_at FROM external_routes ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ExternalRoute
+	for rows.Next() {
+		var r ExternalRoute
+		var at int64
+		if err := rows.Scan(&r.ID, &r.Settings, &r.UpdatedBy, &at); err != nil {
+			return nil, err
+		}
+		r.UpdatedAt = time.Unix(at, 0)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) SetExternalRoute(ctx context.Context, actor, id, settings string, detail any) error {
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO external_routes (id, settings, updated_by, updated_at) VALUES (?, ?, ?, ?)
+			ON CONFLICT (id) DO UPDATE SET settings = excluded.settings, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+			id, settings, NormEmail(actor), time.Now().Unix())
+		if err != nil {
+			return err
+		}
+		return audit(ctx, tx, NormEmail(actor), "route.set", id, "", detail)
+	})
+}
+
+func (s *Store) DeleteExternalRoute(ctx context.Context, actor, id string) error {
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM external_routes WHERE id = ?`, id); err != nil {
+			return err
+		}
+		return audit(ctx, tx, NormEmail(actor), "route.delete", id, "", nil)
+	})
+}

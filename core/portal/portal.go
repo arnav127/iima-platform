@@ -30,6 +30,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/arnav127/iima-platform/core/gateway"
 	"github.com/arnav127/iima-platform/core/github"
 	"github.com/arnav127/iima-platform/core/jobgen"
 	"github.com/arnav127/iima-platform/core/nomad"
@@ -129,6 +130,11 @@ func (p *Portal) rebuild(ctx context.Context) error {
 		a.File = "portal"
 		apps = append(apps, a)
 	}
+	routes, err := p.routes(ctx)
+	if err != nil {
+		return err
+	}
+	apps = append(apps, routes...)
 	reg, err := registry.New(apps...)
 	if err != nil {
 		return err
@@ -193,7 +199,7 @@ func (p *Portal) Request(ctx context.Context, actor, repoIn string) (*registry.A
 		return nil, UserError("Add " + me + " to owners in " + repo + "'s app.toml, so the platform knows you may deploy it.")
 	}
 	defaults(a)
-	if err := p.checkFree(ctx, a, ""); err != nil {
+	if err := p.checkFree(ctx, a, "", "", true); err != nil {
 		return nil, err
 	}
 	err = p.cfg.Store.CreatePortalApp(ctx, store.PortalApp{ID: a.ID, Pending: encode(a), Repo: repo, InstallationID: inst, Branch: branch}, me)
@@ -221,11 +227,21 @@ func (p *Portal) Approve(ctx context.Context, actor, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := p.checkFree(ctx, a, id); err != nil {
+	if err := p.checkFree(ctx, a, id, "", true); err != nil {
 		return err
 	}
 	if err := p.cfg.Store.ApprovePortalApp(ctx, actor, id); err != nil {
 		return err
+	}
+	// The app takes over its path from an external route, if one was standing in for it.
+	if routes, err := p.routes(ctx); err == nil {
+		for _, r := range routes {
+			if r.Path == a.Path {
+				if err := p.cfg.Store.DeleteExternalRoute(ctx, actor, r.ID); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	if err := p.rebuild(ctx); err != nil {
 		return err
@@ -243,11 +259,17 @@ func (p *Portal) Reject(ctx context.Context, actor, id string) error {
 	return p.cfg.Store.RejectPending(ctx, actor, id)
 }
 
-// checkFree makes sure a's id and path are not used by any other app, live or pending.
-func (p *Portal) checkFree(ctx context.Context, a *registry.App, self string) error {
+// checkFree makes sure a's id and path are not used by any other app or route, live or pending.
+// selfApp and selfRoute name the portal app or route being saved, which may keep its own. With
+// takeover, a portal app may have the path of an external route: approving it replaces the route
+// (the cut-over of an app that was running outside the platform).
+func (p *Portal) checkFree(ctx context.Context, a *registry.App, selfApp, selfRoute string, takeover bool) error {
+	used := func(by string) error {
+		return UserError(fmt.Sprintf("The id %s or path %s is already used by %s.", a.ID, a.Path, by))
+	}
 	for _, f := range p.cfg.FileApps {
 		if f.ID == a.ID || f.Path == a.Path {
-			return UserError(fmt.Sprintf("The id %s or path %s is already used by %s.", a.ID, a.Path, f.Name))
+			return used(f.Name)
 		}
 	}
 	all, err := p.cfg.Store.PortalApps(ctx)
@@ -255,13 +277,25 @@ func (p *Portal) checkFree(ctx context.Context, a *registry.App, self string) er
 		return err
 	}
 	for _, pa := range all {
-		if pa.ID == self || pa.Status == store.AppArchived {
+		if pa.ID == selfApp || pa.Status == store.AppArchived {
 			continue
 		}
 		for _, js := range []string{pa.Approved, pa.Pending} {
 			if o, err := decode(js); err == nil && (o.ID == a.ID || o.Path == a.Path) {
-				return UserError(fmt.Sprintf("The id %s or path %s is already used by %s.", a.ID, a.Path, o.Name))
+				return used(o.Name)
 			}
+		}
+	}
+	routes, err := p.routes(ctx)
+	if err != nil {
+		return err
+	}
+	for _, r := range routes {
+		if r.ID == selfRoute {
+			continue
+		}
+		if r.ID == a.ID || (r.Path == a.Path && !takeover) {
+			return used("the external route " + r.Name)
 		}
 	}
 	return nil
@@ -296,7 +330,7 @@ func (p *Portal) UpdateSettings(ctx context.Context, actor, id string, next *reg
 	if err := next.Normalize(); err != nil {
 		return false, UserError(err.Error())
 	}
-	if err := p.checkFree(ctx, next, id); err != nil {
+	if err := p.checkFree(ctx, next, id, "", true); err != nil {
 		return false, err
 	}
 	live, pending := p.Settings(pa)
@@ -911,4 +945,65 @@ func randomToken() string {
 		panic(err)
 	}
 	return hex.EncodeToString(b)
+}
+
+// ---- external routes ----
+
+func (p *Portal) routes(ctx context.Context) ([]*registry.App, error) {
+	rs, err := p.cfg.Store.ExternalRoutes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []*registry.App
+	for _, r := range rs {
+		a, err := decode(r.Settings)
+		if err != nil || a.Shape != registry.ShapeExternal {
+			p.cfg.Log.Error("portal: bad stored route", "route", r.ID, "err", err)
+			continue
+		}
+		a.File = "route"
+		out = append(out, a)
+	}
+	return out, nil
+}
+
+// Routes are the external routes, by path.
+func (p *Portal) Routes(ctx context.Context) ([]*registry.App, error) {
+	rs, err := p.routes(ctx)
+	slices.SortFunc(rs, func(a, b *registry.App) int { return strings.Compare(a.Path, b.Path) })
+	return rs, err
+}
+
+// SaveRoute adds or changes an external route (super admins). It is live as soon as Traefik next
+// polls /platform/routes, a few seconds.
+func (p *Portal) SaveRoute(ctx context.Context, actor string, a *registry.App, existing string) error {
+	a.Shape = registry.ShapeExternal
+	a.Owners, a.Volume, a.PocketBase, a.Entry, a.StripPath = nil, "", false, "", nil
+	if existing != "" {
+		a.ID = existing // the id is the token audience: fixed
+	}
+	if err := a.Normalize(); err != nil {
+		return UserError(err.Error())
+	}
+	// A new route (existing "") keeps nothing; an edited one may keep its own path.
+	self := existing
+	if err := p.checkFree(ctx, a, "", self, false); err != nil {
+		return err
+	}
+	if err := p.cfg.Store.SetExternalRoute(ctx, actor, a.ID, encode(a), map[string]any{"path": a.Path, "upstream": a.Upstream, "auth": a.Auth}); err != nil {
+		return err
+	}
+	return p.rebuild(ctx)
+}
+
+func (p *Portal) DeleteRoute(ctx context.Context, actor, id string) error {
+	if err := p.cfg.Store.DeleteExternalRoute(ctx, actor, id); err != nil {
+		return err
+	}
+	return p.rebuild(ctx)
+}
+
+// GatewayRoutes is Traefik's configuration for the external routes, for /platform/routes.
+func (p *Portal) GatewayRoutes() gateway.Config {
+	return gateway.Routes(p.Registry().Apps())
 }

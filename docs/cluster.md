@@ -91,6 +91,13 @@ The release tar.gz holds `./app` (the Linux binary) and `./pb_public` (the front
 **Roll back:** `nomad job history auxesiscapital`, then `nomad job revert auxesiscapital <version>`.
 A deploy that fails its health check reverts by itself.
 
+## Moving the whole site before every app is ported
+
+Point DNS (or Apache's single `ProxyPass /`) at the entry node, and give every app that still runs
+the old way an external route in `/admin/routes`: same path, its host and port, sign-in `none`.
+Those apps behave as they did behind Apache. Port them one at a time; approving the ported app takes
+its path over from the route.
+
 ## 6. Cut Auxesis over from Apache
 
 Before: Auxesis's `platform-migration` branch merged and released; core deployed; the fund's

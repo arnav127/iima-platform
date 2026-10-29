@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: [kit, kit/pb, core, dev, pocketbase, deploy/traefik/plugins/platformstrip, template/go-pocketbase/backend]
+        module: [kit, kit/pb, core, dev, pocketbase, deploy/traefik/plugins/platformstrip, deploy/traefik/plugins/proxyreverse, template/go-pocketbase/backend]
     runs-on: ubuntu-latest
     defaults:
       run:

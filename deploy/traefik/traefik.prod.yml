@@ -39,6 +39,11 @@ providers:
   file:
     directory: /etc/traefik/dynamic
     watch: true
+  # External routes (apps not on the platform yet), from core's /admin/routes. Through the internal
+  # entry point, so it finds core wherever Nomad runs it.
+  http:
+    endpoint: "http://127.0.0.1:8081/platform/routes"
+    pollInterval: 5s
   nomad:
     exposedByDefault: false
     endpoint:
@@ -49,6 +54,8 @@ experimental:
   localPlugins:
     platformstrip:
       moduleName: github.com/arnav127/iima-platform/deploy/traefik/plugins/platformstrip
+    proxyreverse:
+      moduleName: github.com/arnav127/iima-platform/deploy/traefik/plugins/proxyreverse
 
 metrics:
   prometheus:

@@ -45,6 +45,17 @@ type App struct {
 	// Entry is a Python app's ASGI app, as uvicorn takes it (default "main:app").
 	Entry string `toml:"entry"`
 
+	// Shape "external": an app not on the platform yet, still running where it always has (PM2
+	// behind Apache, say). The gateway proxies its path to Upstream the way Apache's ProxyPass and
+	// ProxyPassReverse do: /path/x goes to Upstream + /x, and redirects and cookie paths that point
+	// back at Upstream are rewritten to /path. Set up by super admins at /admin/routes.
+	Upstream string `toml:"upstream"`
+	// PreserveHost passes the public Host header on (Apache's ProxyPreserveHost), so the upstream
+	// builds links for students.iima.ac.in. Default true.
+	PreserveHost *bool `toml:"preserve_host"`
+	// InsecureTLS skips checking an https upstream's certificate (a self-signed one on a campus box).
+	InsecureTLS bool `toml:"insecure_tls"`
+
 	File string `toml:"-"` // where it was loaded from, for error messages
 }
 
@@ -53,6 +64,11 @@ const (
 	LoginExternal = "external"
 	AuthOptional  = "optional"
 	AuthRequired  = "required"
+	// AuthNone passes requests through without asking core who is signed in, like Apache did.
+	// External routes only: platform apps always get the gateway's identity check.
+	AuthNone = "none"
+	// ShapeExternal is an app proxied to a host and port outside the platform.
+	ShapeExternal = "external"
 )
 
 // Reserved first path segments that belong to the platform. "/" itself belongs to core too.
@@ -61,7 +77,7 @@ var Reserved = []string{"auth", "platform", "admin"}
 var (
 	idRe   = regexp.MustCompile(`^[a-z][a-z0-9-]{1,39}$`)
 	pathRe = regexp.MustCompile(`^/[a-z0-9][a-z0-9-]*$`)
-	shapes = []string{"go-pocketbase", "go", "next", "python", "pocketbase"}
+	shapes = []string{"go-pocketbase", "go", "next", "python", "pocketbase", ShapeExternal}
 )
 
 // RootPath is the home app's path: it gets every request no other app or the platform claims.
@@ -70,8 +86,27 @@ const RootPath = "/"
 // IsRoot reports whether this is the home app at "/".
 func (a *App) IsRoot() bool { return a.Path == RootPath }
 
-// Strips reports whether the gateway removes the app's path before forwarding. Never for the home app.
-func (a *App) Strips() bool { return !a.IsRoot() && (a.StripPath == nil || *a.StripPath) }
+// Strips reports whether the gateway removes the app's path before forwarding. Never for the home
+// app. External routes always map their path onto the upstream's (see UpstreamParts).
+func (a *App) Strips() bool {
+	if a.IsRoot() {
+		return false
+	}
+	return a.Shape == ShapeExternal || a.StripPath == nil || *a.StripPath
+}
+
+// PreservesHost reports whether an external route passes the public Host header on.
+func (a *App) PreservesHost() bool { return a.PreserveHost == nil || *a.PreserveHost }
+
+// UpstreamParts splits Upstream into the server (scheme://host:port) and its path ("" or "/x"),
+// which the gateway puts back in front of the request path once it has removed the app's own.
+func (a *App) UpstreamParts() (server, path string) {
+	u, err := url.Parse(a.Upstream)
+	if err != nil {
+		return "", ""
+	}
+	return u.Scheme + "://" + u.Host, strings.TrimRight(u.Path, "/")
+}
 
 // Route priorities in the gateway. Higher wins. The home app sits just above core's catch-all (1)
 // and below everything else, so it only gets what nothing more specific claims; even its public
@@ -110,7 +145,7 @@ func (a *App) Priority(public bool) int {
 // Content-Security-Policy header to the app: Next puts inline scripts in every page, so the app sets
 // a policy with a fresh nonce per request (@iima/kit/next's contentSecurityPolicy).
 func (a *App) Chain(auth string) string {
-	if a.Shape == "next" {
+	if a.Shape == "next" || a.Shape == ShapeExternal {
 		return "auth-" + auth + "-next"
 	}
 	return "auth-" + auth
@@ -193,14 +228,24 @@ func (a *App) validate() error {
 		return fmt.Errorf("name is required")
 	case a.Login != LoginIIMA && a.Login != LoginExternal:
 		return fmt.Errorf("login %q: must be %q or %q", a.Login, LoginIIMA, LoginExternal)
-	case a.Auth != AuthOptional && a.Auth != AuthRequired:
-		return fmt.Errorf("auth %q: must be %q or %q", a.Auth, AuthOptional, AuthRequired)
+	case a.Auth != AuthOptional && a.Auth != AuthRequired && !(a.Auth == AuthNone && a.Shape == ShapeExternal):
+		return fmt.Errorf("auth %q: must be %q or %q (or %q for an external route)", a.Auth, AuthOptional, AuthRequired, AuthNone)
 	case !slices.Contains(shapes, a.Shape):
 		return fmt.Errorf("shape %q: must be one of %s", a.Shape, strings.Join(shapes, ", "))
 	case a.PocketBase && a.Shape != "next" && a.Shape != "python":
 		return fmt.Errorf("pocketbase = true is for Next.js and Python apps; Go apps build PocketBase in (shape go-pocketbase)")
+	case a.Shape == ShapeExternal && a.Upstream == "":
+		return fmt.Errorf("an external route needs upstream, like http://10.0.0.5:3010")
+	case a.Shape != ShapeExternal && (a.Upstream != "" || a.InsecureTLS):
+		return fmt.Errorf("upstream is for external routes only")
 	case a.ManagerRole != "" && !slices.Contains(a.Roles, a.ManagerRole):
 		return fmt.Errorf("manager_role %q must be one of the declared roles", a.ManagerRole)
+	}
+	if a.Upstream != "" {
+		u, err := url.Parse(a.Upstream)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("upstream %q: must be http:// or https://, a host and an optional path, like http://10.0.0.5:3010/app", a.Upstream)
+		}
 	}
 	for _, p := range a.Public {
 		if !strings.HasPrefix(p, "/") || path.Clean(p) != p {

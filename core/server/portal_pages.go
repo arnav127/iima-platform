@@ -1,10 +1,12 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"html/template"
 	"io"
 	"net/http"
+	"net/netip"
 	"os"
 	"regexp"
 	"strconv"
@@ -40,6 +42,7 @@ type deployData struct {
 	Stdout   string
 	Stderr   string
 	Shapes   []string
+	Portal   bool // for the admin nav: the portal is on
 }
 
 var deployPages = template.Must(template.Must(adminPages.Clone()).Funcs(template.FuncMap{
@@ -395,6 +398,17 @@ func (s *Server) portalRoutes(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	// Traefik's HTTP provider polls the external routes here (see core/gateway).
+	mux.HandleFunc("GET /platform/routes", func(w http.ResponseWriter, r *http.Request) {
+		if !fromTraefik(r) {
+			s.handleNotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(p.GatewayRoutes())
+	})
+
 	// Nomad clients download builds from here over the cluster network. The gateway blocks this
 	// path, and anything that came through a proxy (X-Forwarded-For) is refused too.
 	mux.HandleFunc("GET /platform/artifacts/{file}", func(w http.ResponseWriter, r *http.Request) {
@@ -480,4 +494,21 @@ func (s *Server) portalRows(r *http.Request, a *actor) ([]portalRow, error) {
 		rows = append(rows, portalRow{ID: pa.ID, Name: show.Name, Path: show.Path, Repo: pa.Repo, Status: pa.Status, Waiting: pending != nil})
 	}
 	return rows, nil
+}
+
+// fromTraefik reports whether a request came from the gateway's own HTTP provider: straight to core
+// (no X-Forwarded-For), or through the internal entry point, which only listens on loopback (every
+// X-Forwarded-For entry is a loopback address). The public entry point blocks the path as well.
+func fromTraefik(r *http.Request) bool {
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff == "" {
+		return true
+	}
+	for _, ip := range strings.Split(xff, ",") {
+		a, err := netip.ParseAddr(strings.TrimSpace(ip))
+		if err != nil || !a.IsLoopback() {
+			return false
+		}
+	}
+	return true
 }

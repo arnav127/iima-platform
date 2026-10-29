@@ -1,0 +1,8 @@
+displayName: Proxy reverse
+type: middleware
+import: github.com/arnav127/iima-platform/deploy/traefik/plugins/proxyreverse
+summary: Rewrites redirects and cookie paths from an external upstream back to the public path (Apache's ProxyPassReverse).
+testData:
+  upstream: http://10.0.0.5:3010/app
+  upstreamPath: /app
+  publicPath: /legacy

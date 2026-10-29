@@ -92,8 +92,10 @@ if [ "$ENTRY" = true ]; then
   install -m 0644 "$REPO/deploy/traefik/traefik.prod.yml" /etc/traefik/traefik.yml
   install -m 0644 "$REPO/deploy/traefik/dynamic/platform.yml" /etc/traefik/dynamic/platform.yml
   [ -f /etc/traefik/dynamic/tls.yml ] || echo "  copy deploy/traefik/dynamic/tls.prod.yml.example to /etc/traefik/dynamic/tls.yml and add the certificate" >&2
-  plugin=/etc/traefik/plugins-local/src/github.com/arnav127/iima-platform/deploy/traefik/plugins/platformstrip
-  rm -rf "$plugin" && mkdir -p "$plugin" && cp -r "$REPO/deploy/traefik/plugins/platformstrip/." "$plugin/"
+  for p in platformstrip proxyreverse; do
+    plugin=/etc/traefik/plugins-local/src/github.com/arnav127/iima-platform/deploy/traefik/plugins/$p
+    rm -rf "$plugin" && mkdir -p "$plugin" && cp -r "$REPO/deploy/traefik/plugins/$p/." "$plugin/"
+  done
   if [ -f /etc/traefik/nomad.token ]; then
     sed -i "s|      token: \"\".*|      token: \"$(cat /etc/traefik/nomad.token)\"|" /etc/traefik/traefik.yml
   else

@@ -191,20 +191,23 @@ func run(googleOnly, nomadMode, portalMode bool, realApps map[string]string) err
 			traefik: traefik, coreBin: coreBin, demoBin: demoBin, devApps: devApps.Apps(), reals: reals,
 		})
 	}
+	corePort, err := freePort()
+	if err != nil {
+		return err
+	}
+	coreAddr := fmt.Sprintf("127.0.0.1:%d", corePort)
 	ports, err := prepareTraefik(root, tdir, "traefik.local.yml", routed)
 	if err != nil {
+		return err
+	}
+	// File mode has no internal entry point: Traefik reads the external routes straight from core.
+	if err := addRoutesProvider(filepath.Join(tdir, "traefik.yml"), "http://"+coreAddr+"/platform/routes"); err != nil {
 		return err
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	var g group
-
-	corePort, err := freePort()
-	if err != nil {
-		return err
-	}
-	coreAddr := fmt.Sprintf("127.0.0.1:%d", corePort)
 
 	coreEnv := map[string]string{
 		"CORE_ADDR":  coreAddr,
@@ -458,8 +461,11 @@ func prepareTraefik(root, tdir, static string, apps []*registry.App) (map[string
 	if err := copyFile(filepath.Join(root, "deploy", "traefik", "dynamic", "platform.yml"), filepath.Join(dyn, "platform.yml")); err != nil {
 		return nil, err
 	}
-	if err := os.CopyFS(plugin, os.DirFS(filepath.Join(root, "deploy", "traefik", "plugins", "platformstrip"))); err != nil {
-		return nil, err
+	for _, p := range []string{"platformstrip", "proxyreverse"} {
+		dst := filepath.Join(filepath.Dir(plugin), p)
+		if err := os.CopyFS(dst, os.DirFS(filepath.Join(root, "deploy", "traefik", "plugins", p))); err != nil {
+			return nil, err
+		}
 	}
 	if len(apps) == 0 {
 		return nil, nil
@@ -616,4 +622,19 @@ func (w *prefixWriter) Write(p []byte) (int, error) {
 		w.buf = w.buf[i+1:]
 	}
 	return len(p), nil
+}
+
+// addRoutesProvider adds Traefik's HTTP provider, polling core for the external routes, to a
+// static config that does not have it (the file-mode one).
+func addRoutesProvider(static, url string) error {
+	b, err := os.ReadFile(static)
+	if err != nil {
+		return err
+	}
+	s := string(b)
+	if strings.Contains(s, "  http:\n    endpoint:") {
+		return nil
+	}
+	s = strings.Replace(s, "providers:\n", "providers:\n  http:\n    endpoint: \""+url+"\"\n    pollInterval: 5s\n", 1)
+	return os.WriteFile(static, []byte(s), 0o644)
 }

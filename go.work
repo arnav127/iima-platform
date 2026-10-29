@@ -3,6 +3,7 @@ go 1.27.0
 use (
 	./core
 	./deploy/traefik/plugins/platformstrip
+	./deploy/traefik/plugins/proxyreverse
 	./dev
 	./kit
 	./kit/pb

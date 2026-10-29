@@ -40,7 +40,7 @@ type portalRow struct {
 var adminPages = template.Must(template.Must(pages.Clone()).Funcs(template.FuncMap{
 	"has": func(list []string, v string) bool { return slices.Contains(list, v) },
 }).Parse(`
-{{define "adminnav"}}<div class="subnav"><a href="/admin"{{if eq .Title "Dashboard"}} class="on"{{end}}>Dashboard</a>{{if .Actor.Super}}<a href="/admin/people"{{if eq .Title "People"}} class="on"{{end}}>People</a><a href="/admin/super-admins"{{if eq .Title "Super admins"}} class="on"{{end}}>Super admins</a><a href="/admin/audit"{{if eq .Title "Audit log"}} class="on"{{end}}>Audit log</a>{{if .Portal}}<a href="/admin/github">GitHub App</a>{{end}}{{end}}</div>
+{{define "adminnav"}}<div class="subnav"><a href="/admin"{{if eq .Title "Dashboard"}} class="on"{{end}}>Dashboard</a>{{if .Actor.Super}}<a href="/admin/people"{{if eq .Title "People"}} class="on"{{end}}>People</a><a href="/admin/super-admins"{{if eq .Title "Super admins"}} class="on"{{end}}>Super admins</a><a href="/admin/audit"{{if eq .Title "Audit log"}} class="on"{{end}}>Audit log</a>{{if .Portal}}<a href="/admin/routes"{{if eq .Title "Routes"}} class="on"{{end}}>Routes</a><a href="/admin/github">GitHub App</a>{{end}}{{end}}</div>
 {{if .Message}}<div class="note ok">{{.Message}}</div>{{end}}{{if .Error}}<div class="note err">{{.Error}}</div>{{end}}{{end}}
 
 {{define "statuspill"}}{{if eq . "approved"}}<span class="pill ok">live</span>{{else if eq . "pending"}}<span class="pill warn">waiting for approval</span>{{else}}<span class="pill bad">turned down</span>{{end}}{{end}}

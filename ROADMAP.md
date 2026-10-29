@@ -94,6 +94,8 @@ are the steps that need the campus servers. Runbook: `docs/cluster.md`.
 - [x] Tried end to end on a laptop: `devstack -nomad -portal` (fake GitHub with both templates)
 - [x] Home app at `/`: gets every path nothing else claims; the app directory moves to `/platform/apps`
 - [x] New look for every core page (directory, dashboard, approval queue, app page)
+- [x] External routes at `/admin/routes` for apps not ported yet (Apache-style `ProxyPass` + `ProxyPassReverse` + `ProxyPreserveHost`, optional gateway sign-in, websockets and server-sent events checked through Traefik); Traefik polls them from core; approving a ported app takes its route's path over
+- [x] Stop and Archive for portal apps; super admins see how many apps wait for approval
 - [ ] On GitHub: make `iima-platform` public (or move the build workflow and kits somewhere public), so other people's repos can call the workflow
 - [ ] On the cluster: core's Nomad Variable gets `NOMAD_TOKEN`; create the GitHub App; connect Auxesis as the first portal app
 - [ ] `iima` CLI

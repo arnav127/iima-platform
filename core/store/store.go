@@ -117,7 +117,7 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, sc := range []string{schema, portalSchema, settingsSchema} {
+	for _, sc := range []string{schema, portalSchema, settingsSchema, routesSchema} {
 		if _, err := db.Exec(sc); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("store: create schema: %w", err)

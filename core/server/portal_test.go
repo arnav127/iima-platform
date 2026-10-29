@@ -240,3 +240,82 @@ func TestWaitingBadge(t *testing.T) {
 		t.Fatal("the badge is for super admins only")
 	}
 }
+
+func TestExternalRoutes(t *testing.T) {
+	e, _, p := portalEnv(t)
+	owner, super := e.browser(), e.browser()
+	e.devSignIn(owner, "p25owner@iima.ac.in", "/")
+	e.devSignIn(super, "boss@iima.ac.in", "/")
+	form := url.Values{"id": {"quiz"}, "name": {"Quiz (old)"}, "path": {"/quiz"}, "upstream": {"http://10.0.0.5:3010/quiz"},
+		"auth": {"optional"}, "login": {"iima"}, "preserve_host": {"1"}, "realtime": {"1"}}
+
+	// Only super admins manage routes.
+	if r := e.do(owner, "POST", "/admin/routes", form, nil); r.StatusCode != http.StatusForbidden {
+		t.Fatalf("app admin adding a route: %d", r.StatusCode)
+	}
+	if r := e.do(super, "POST", "/admin/routes", form, map[string]string{"Origin": "https://evil.example"}); r.StatusCode != http.StatusForbidden {
+		t.Fatalf("cross-site: %d", r.StatusCode)
+	}
+	if r := e.do(super, "POST", "/admin/routes", form, nil); !strings.Contains(r.Header.Get("Location"), "msg=") {
+		t.Fatalf("save: %s", r.Header.Get("Location"))
+	}
+	// Live: the gateway check knows the path and mints a token for it.
+	if e.verify(owner, "optional", "/quiz/x", nil).Header.Get("X-User-Token") == "" {
+		t.Fatal("no token for the route")
+	}
+	// Another route cannot take the same path, nor a reserved one.
+	dup := url.Values{"id": {"other"}, "name": {"O"}, "path": {"/quiz"}, "upstream": {"http://h"}, "auth": {"none"}, "login": {"iima"}}
+	if r := e.do(super, "POST", "/admin/routes", dup, nil); !strings.Contains(r.Header.Get("Location"), "err=") {
+		t.Fatal("duplicate path accepted")
+	}
+
+	// Traefik gets it from /platform/routes; nobody else does.
+	get := func(xff string) (int, string) {
+		req, _ := http.NewRequest("GET", e.srv.URL+"/platform/routes", nil)
+		if xff != "" {
+			req.Header.Set("X-Forwarded-For", xff)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	if code, body := get(""); code != 200 || !strings.Contains(body, `"ext-quiz"`) || !strings.Contains(body, "http://10.0.0.5:3010") {
+		t.Fatalf("routes for Traefik: %d %s", code, body)
+	}
+	if code, _ := get("127.0.0.1"); code != 200 {
+		t.Fatal("internal entry point refused")
+	}
+	for _, xff := range []string{"1.2.3.4", "127.0.0.1, 1.2.3.4", "garbage"} {
+		if code, _ := get(xff); code != http.StatusNotFound {
+			t.Fatalf("routes shown to %q", xff)
+		}
+	}
+
+	// The app moving onto the platform takes the path over when approved.
+	if r := e.do(owner, "POST", "/admin/apps/new", url.Values{"repo": {"club/quiz"}}, nil); !strings.HasPrefix(r.Header.Get("Location"), "/admin/apps/quiz/deploy") {
+		// The route's id is quiz too: the request has to wait until the route is gone or renamed.
+		if !strings.Contains(r.Header.Get("Location"), "err=") {
+			t.Fatalf("request with the route's id: %s", r.Header.Get("Location"))
+		}
+	}
+	e.do(super, "POST", "/admin/routes/delete", url.Values{"id": {"quiz"}}, nil)
+	form.Set("id", "quiz-old")
+	e.do(super, "POST", "/admin/routes", form, nil)
+	if r := e.do(owner, "POST", "/admin/apps/new", url.Values{"repo": {"club/quiz"}}, nil); !strings.HasPrefix(r.Header.Get("Location"), "/admin/apps/quiz/deploy") {
+		t.Fatalf("request for the route's path: %s", r.Header.Get("Location"))
+	}
+	if e.cfg.Portal.Registry().Lookup("/quiz/").ID != "quiz-old" {
+		t.Fatal("the route must keep serving until approval")
+	}
+	e.do(super, "POST", "/admin/apps/quiz/approve", url.Values{}, nil)
+	if a := p.Registry().Lookup("/quiz/"); a == nil || a.ID != "quiz" {
+		t.Fatalf("after approval the app owns the path: %+v", a)
+	}
+	if rs, _ := p.Routes(context.Background()); len(rs) != 0 {
+		t.Fatal("the route was not removed")
+	}
+}

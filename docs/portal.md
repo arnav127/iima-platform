@@ -43,7 +43,12 @@ the build, not here.
 - **The home app.** One app may take the path `/`. It gets every request no other app or the platform
   claims (the mess menu at `/mess`, events at `/events`...), so approve it only for the app meant to
   be the site's front page. The platform's own app directory stays at `/platform/apps`.
-
+- **Apps not on the platform yet** get an external route at `/admin/routes`: a path, the host and
+  port it runs on (`http://10.0.0.5:3010/betamarkets`), and whether the gateway should ask people to
+  sign in. It works like Apache's `ProxyPass` and `ProxyPassReverse`: redirects and cookie paths that
+  point at the upstream come back as the public path, websockets and server-sent events pass through
+  (tick "realtime" for event streams or long polling). It is live within seconds. When the app is
+  ported, connect its repo with the same path: approving it replaces the route.
 - **Moving a hand-made app into the portal** (one in `apps/`, like Auxesis): give its repo an
   `app.toml` and the deploy workflow, delete its file from `apps/` and redeploy core, then connect the
   repo and approve it. Keep the same `id` and `volume`, so its roles and data carry over.

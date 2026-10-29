@@ -192,6 +192,23 @@ a Go, PocketBase or Python app serves at `/` and learns its public prefix from `
 (`iimakit.Prefix`). Next.js apps keep the full path, because their `basePath` expects it. The strip
 runs after forward auth, so core always sees the full path.
 
+**External routes** (shape `external`). Apps not on the platform yet keep running where they are, and
+a super admin points their path at a host and port in `/admin/routes`, the way Apache's `ProxyPass`
+lines did. So the whole site can move to the gateway before every app is ported.
+- `/path/x` goes to `<upstream>/x`, with the upstream's own path kept in front. The public Host is
+  passed on by default (`ProxyPreserveHost`). Redirects, `Content-Location` and cookie paths that point
+  back at the upstream are rewritten to the public path by a small gateway plugin
+  (`deploy/traefik/plugins/proxyreverse`, Apache's `ProxyPassReverse` and `ProxyPassReverseCookiePath`).
+- Sign-in at the gateway is `none` (passed through, as Apache did), `optional` or `required`. Either
+  way the platform's identity headers and session cookie never reach the upstream.
+- Websockets pass through. Server-sent events stream as sent, and a `realtime` route also skips
+  compression. The plugin steps aside for upgrades and `Accept: text/event-stream` requests, because a
+  wrapper made in Traefik's interpreter would hide `Hijack` and `Flush`.
+- Core serves the routes as Traefik configuration at `/platform/routes`, and Traefik polls it every
+  5 seconds with its HTTP provider, through the loopback-only internal entry point. The public entry
+  point blocks that path.
+- When the app moves onto the platform with the same path, approving it replaces the route in one step.
+
 ## Kits (shared code, no shared state)
 
 ### `iimakit` (Go, no PocketBase dependency)
