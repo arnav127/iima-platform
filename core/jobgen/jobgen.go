@@ -29,6 +29,8 @@ type Cluster struct {
 	// BinarySuffix is ".exe" for a local Nomad on Windows: Nomad looks for the exact file name, and a
 	// build made for Windows is app.exe. Empty on the Linux cluster.
 	BinarySuffix string `toml:"binary_suffix"`
+	// Node is the Node.js binary on every client, for Next.js apps (default "node" on the PATH).
+	Node string `toml:"node"`
 }
 
 // Release is one build of an app: a tar.gz with the binary at ./app and, for PocketBase apps,
@@ -48,6 +50,7 @@ type Release struct {
 var healthPath = map[string]string{
 	"go-pocketbase": "/api/health",
 	"go":            "/health",
+	"next":          "/api/health", // under the app's path: Next keeps its basePath
 }
 
 const ()
@@ -56,7 +59,10 @@ const ()
 func Build(c Cluster, app *registry.App, rel Release) (*Job, error) {
 	health, ok := healthPath[app.Shape]
 	if !ok {
-		return nil, fmt.Errorf("jobgen: shape %q is not supported yet (go-pocketbase and go are)", app.Shape)
+		return nil, fmt.Errorf("jobgen: shape %q is not supported yet (go-pocketbase, go and next are)", app.Shape)
+	}
+	if app.Shape == "next" && !app.IsRoot() {
+		health = app.Path + health
 	}
 	if c.Driver != "exec" && c.Driver != "raw_exec" {
 		return nil, fmt.Errorf("jobgen: driver must be exec or raw_exec, not %q", c.Driver)
@@ -120,26 +126,65 @@ func Build(c Cluster, app *registry.App, rel Release) (*Job, error) {
 		Tasks:         []*Task{task},
 	}
 
+	// data gives the task (the one running PocketBase) the app's data directory.
+	data := func(t *Task) (string, error) {
+		if app.Volume == "" {
+			return "", fmt.Errorf("jobgen: %s runs PocketBase and needs volume in app.toml", app.ID)
+		}
+		if c.Driver != "exec" {
+			return strings.TrimRight(c.LocalDataRoot, `/\`) + "/" + app.ID, nil
+		}
+		// A host volume pins the app to the node that holds its data, so a redeploy can never
+		// start it on an empty database.
+		tg.Volumes = map[string]*Volume{"data": {
+			Name: "data", Type: "host", Source: app.Volume,
+			AccessMode: "single-node-single-writer", AttachmentMode: "file-system",
+		}}
+		t.VolumeMounts = []*VolumeMount{{Volume: "data", Destination: "/data"}}
+		return "/data", nil
+	}
+
 	switch app.Shape {
 	case "go-pocketbase":
-		dataDir := "/data"
-		if app.Volume == "" {
-			return nil, fmt.Errorf("jobgen: %s is a PocketBase app and needs volume in app.toml", app.ID)
+		dir, err := data(task)
+		if err != nil {
+			return nil, err
 		}
-		if c.Driver == "exec" {
-			// A host volume pins the app to the node that holds its data, so a redeploy can never
-			// start it on an empty database.
-			tg.Volumes = map[string]*Volume{"data": {
-				Name: "data", Type: "host", Source: app.Volume,
-				AccessMode: "single-node-single-writer", AttachmentMode: "file-system",
-			}}
-			task.VolumeMounts = []*VolumeMount{{Volume: "data", Destination: "/data"}}
-		} else {
-			dataDir = strings.TrimRight(c.LocalDataRoot, `/\`) + "/" + app.ID
-		}
-		task.Config = map[string]any{"command": binary, "args": []string{"serve", "--dir", dataDir, "--publicDir", publicDir}}
+		task.Config = map[string]any{"command": binary, "args": []string{"serve", "--dir", dir, "--publicDir", publicDir}}
 	case "go":
 		task.Config = map[string]any{"command": binary}
+	case "next":
+		if local {
+			return nil, errors.New("jobgen: Next.js apps run from a release, not a local command")
+		}
+		// Next's standalone server, with its base path kept (Next apps are not stripped).
+		task.Config = map[string]any{"command": orStr(c.Node, "node"), "args": []string{"local/app/server.js"}}
+		task.Env["PORT"] = "${NOMAD_PORT_http}"
+		task.Env["HOSTNAME"] = "${NOMAD_IP_http}"
+		task.Env["NODE_ENV"] = "production"
+		if app.PocketBase {
+			// The platform's PocketBase beside it, on loopback only: the Next server is its only
+			// client. It starts first and runs as long as the app (a sidecar).
+			pb := &Task{
+				Name: "pocketbase", Driver: c.Driver, Env: map[string]string{},
+				Lifecycle:   &Lifecycle{Hook: "prestart", Sidecar: true},
+				Resources:   &Resources{CPU: 100, MemoryMB: 128},
+				KillTimeout: dur(10 * time.Second),
+				Artifacts:   task.Artifacts,
+				Templates:   task.Templates, // PB_ADMIN_EMAIL and PB_ADMIN_PASSWORD bootstrap its superuser
+			}
+			dir, err := data(pb)
+			if err != nil {
+				return nil, err
+			}
+			pb.Config = map[string]any{"command": "local/pocketbase" + c.BinarySuffix, "args": []string{
+				"serve", "--http", "127.0.0.1:${NOMAD_PORT_pb}", "--dir", dir,
+				"--migrationsDir", "local/pb_migrations", "--hooksDir", "local/pb_hooks",
+			}}
+			tg.Networks[0].DynamicPorts = append(tg.Networks[0].DynamicPorts, Port{Label: "pb"})
+			task.Env["POCKETBASE_URL"] = "http://127.0.0.1:${NOMAD_PORT_pb}"
+			tg.Tasks = []*Task{pb, task}
+		}
 	}
 
 	return &Job{
@@ -191,6 +236,13 @@ func Tags(app *registry.App) []string {
 	tags = append(tags, fmt.Sprintf("traefik.http.routers.%s.service=%s", id, id))
 	slices.Sort(tags)
 	return tags
+}
+
+func orStr(v, d string) string {
+	if v == "" {
+		return d
+	}
+	return v
 }
 
 func orDefault(v, d int) int {

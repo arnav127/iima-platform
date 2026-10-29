@@ -1,25 +1,33 @@
-# The platform's build for app repos. An app calls it from its own workflow (see
-# template/go-pocketbase/.github/workflows/deploy.yml); on every push it builds the app for the
-# cluster and publishes a GitHub release build-<commit> with app.tar.gz and app.tar.gz.sha256.
-# The deploy portal picks the release up and deploys it.
+# The platform's build for app repos. An app calls it from its own workflow (see the templates'
+# .github/workflows/deploy.yml); on every push it builds the app for the cluster and publishes a
+# GitHub release build-<commit> with app.tar.gz and app.tar.gz.sha256. The deploy portal picks the
+# release up and deploys it. Builds run here, on GitHub, so no app's install scripts ever run on
+# campus servers.
 #
-# app.tar.gz holds ./app (a Linux binary) and, for PocketBase apps, ./pb_public (the built frontend).
-# Builds run here, on GitHub, so no app's install scripts ever run on campus servers.
+# What app.tar.gz holds, by shape (app.toml):
+#   go-pocketbase  ./app (Linux binary), ./pb_public (the built frontend)
+#   go             ./app
+#   next           ./app/server.js (Next's standalone server), and with pocketbase = true also
+#                  ./pocketbase (the platform's pinned build), ./pb_migrations, ./pb_hooks
 name: build-app
 
 on:
   workflow_call:
     inputs:
       backend-dir:
-        description: The Go module to build, relative to the repo root
+        description: Go apps, the Go module to build (relative to the repo root)
         type: string
         default: backend
       public-dir:
-        description: Where the frontend build lands (PocketBase apps), relative to the repo root
+        description: PocketBase apps, where the frontend build lands
         type: string
         default: backend/pb_public
+      web-dir:
+        description: Next.js apps, the folder with package.json and next.config
+        type: string
+        default: "."
       platform-ref:
-        description: Which iima-platform commit to build the kits from (until they are published)
+        description: Which iima-platform commit to build the kits and PocketBase from
         type: string
         default: main
 
@@ -33,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: app
-      # The app's go.mod and package.json point at ../iima-platform for the kits.
+      # Apps point at ../iima-platform for the kits until they are published.
       - uses: actions/checkout@v4
         with:
           repository: arnav127/iima-platform
@@ -49,47 +57,76 @@ jobs:
           a = tomllib.load(open("app.toml", "rb"))
           print("id=" + a["id"])
           print("path=" + a["path"])
+          print("base=" + a["path"].rstrip("/") + "/")
           print("shape=" + a.get("shape", ""))
+          print("pocketbase=" + str(a.get("pocketbase", False)).lower())
           EOF
 
       - uses: actions/setup-node@v4
-        if: hashFiles('app/package.json') != ''
         with:
           node-version: "24"
-      - name: Build the frontend
-        if: hashFiles('app/package.json') != ''
-        working-directory: app
-        env:
-          VITE_BASE: ${{ steps.app.outputs.path }}/
-        run: |
-          (cd ../iima-platform/kit-js && npm ci)
-          npm ci
-          npm audit --omit=dev --audit-level=high
-          npm run build
-
       - uses: actions/setup-go@v5
         with:
           go-version: "1.27.x"
           check-latest: true
+      - name: Kit dependencies
+        run: cd iima-platform/kit-js && npm ci
+
+      # ---- Go apps ----
+      - name: Build the frontend
+        if: steps.app.outputs.shape != 'next' && hashFiles('app/package.json') != ''
+        working-directory: app
+        env:
+          VITE_BASE: ${{ steps.app.outputs.base }}
+        run: |
+          npm ci
+          npm audit --omit=dev --audit-level=high
+          npm run build
       - name: Test and build the backend
+        if: steps.app.outputs.shape != 'next'
         working-directory: app/${{ inputs.backend-dir }}
         env:
           GOWORK: "off"
           CGO_ENABLED: "0"
-          GOOS: linux
-          GOARCH: amd64
         run: |
           go vet ./...
-          GOOS= GOARCH= go test ./...
+          go test ./...
           go run golang.org/x/vuln/cmd/govulncheck@latest ./...
           mkdir -p "$GITHUB_WORKSPACE/dist"
-          go build -trimpath -ldflags "-s -w" -o "$GITHUB_WORKSPACE/dist/app" .
+          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o "$GITHUB_WORKSPACE/dist/app" .
+          if [ "${{ steps.app.outputs.shape }}" = "go-pocketbase" ]; then
+            cp -r "$GITHUB_WORKSPACE/app/${{ inputs.public-dir }}" "$GITHUB_WORKSPACE/dist/pb_public"
+          fi
+
+      # ---- Next.js apps ----
+      - name: Build the Next.js app
+        if: steps.app.outputs.shape == 'next'
+        working-directory: app/${{ inputs.web-dir }}
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: |
+          npm ci
+          npm audit --omit=dev --audit-level=high
+          npm run build
+          test -d .next/standalone || { echo "next.config needs output: 'standalone'"; exit 1; }
+          # With the kit linked from ../iima-platform, Next nests the app inside standalone/; find it.
+          server=$(find .next/standalone -name server.js -not -path '*/node_modules/*' | head -1)
+          sub=$(dirname "${server#.next/standalone/}")
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp -r .next/standalone "$GITHUB_WORKSPACE/dist/app"
+          cp -r .next/static "$GITHUB_WORKSPACE/dist/app/$sub/.next/static"
+          if [ -d public ]; then cp -r public "$GITHUB_WORKSPACE/dist/app/$sub/public"; fi
+          if [ "$sub" != "." ]; then echo "require('./$sub/server.js')" > "$GITHUB_WORKSPACE/dist/app/server.js"; fi
+      - name: Add the platform's PocketBase
+        if: steps.app.outputs.shape == 'next' && steps.app.outputs.pocketbase == 'true'
+        run: |
+          (cd iima-platform/pocketbase && GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o "$GITHUB_WORKSPACE/dist/pocketbase" .)
+          mkdir -p dist/pb_migrations dist/pb_hooks
+          if [ -d app/pb_migrations ]; then cp -r app/pb_migrations/. dist/pb_migrations/; fi
+          if [ -d app/pb_hooks ]; then cp -r app/pb_hooks/. dist/pb_hooks/; fi
 
       - name: Package
         run: |
-          if [ "${{ steps.app.outputs.shape }}" = "go-pocketbase" ]; then
-            cp -r "app/${{ inputs.public-dir }}" dist/pb_public
-          fi
           tar -czf app.tar.gz -C dist .
           sha256sum app.tar.gz > app.tar.gz.sha256
           cat app.tar.gz.sha256

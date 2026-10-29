@@ -1,0 +1,14 @@
+# This app's settings for the platform. The deploy portal reads it when you connect the repo; after
+# that, change settings on the app's page in the portal. See ARCHITECTURE.md for every field.
+id         = "mynextapp"                # also the token's aud and the Nomad job name
+name       = "My Next App"
+path       = "/mynextapp"               # also Next's basePath (next.config.ts reads it from here)
+owners     = ["you@iima.ac.in"]         # who may deploy it; reviewed every term
+review     = "2027-03-31"
+shape      = "next"
+login      = "iima"                     # or "external" to let other Google accounts in
+auth       = "optional"
+roles      = ["admin"]
+public     = ["/api/health"]
+pocketbase = true                       # the platform's PocketBase beside the app, behind its server
+memory     = 512

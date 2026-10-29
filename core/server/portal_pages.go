@@ -112,6 +112,7 @@ var deployPages = template.Must(template.Must(adminPages.Clone()).Funcs(template
 <div><label>Memory (MB)</label><input name="memory" type="number" min="64" max="4096" value="{{if .Memory}}{{.Memory}}{{else}}256{{end}}"></div>
 <div><label>Review date</label><input name="review" type="date" value="{{.Review}}"><div class="hint">When the owners check the app is still needed.</div></div>
 </div><label class="chk" style="margin-top:1rem"><input type="checkbox" name="realtime" value="1"{{if .Realtime}} checked{{end}}> Uses realtime (long-lived connections)</label>
+<label class="chk"><input type="checkbox" name="pocketbase" value="1"{{if .PocketBase}} checked{{end}}> Next.js: run PocketBase beside the app (data kept on its own volume)</label>
 <div class="row"><button class="btn" type="submit">Save settings</button></div>
 <p class="hint">Changes to the path, who may sign in, signed-out visitors, public paths or shape wait for a super admin. The rest applies now.</p>
 </form>{{end}}</div>
@@ -244,7 +245,7 @@ func (s *Server) portalRoutes(mux *http.ServeMux) {
 			return
 		}
 		ctx := r.Context()
-		d := deployData{Title: pa.ID, Actor: a, App: pa, Shapes: []string{"go-pocketbase", "go"}}
+		d := deployData{Title: pa.ID, Actor: a, App: pa, Shapes: []string{"go-pocketbase", "go", "next"}}
 		d.Message, d.Error = flash(r)
 		d.Live, d.Pending = p.Settings(pa)
 		d.Form = d.Live
@@ -426,6 +427,7 @@ func settingsFromForm(r *http.Request) (*registry.App, error) {
 		Shape: r.PostFormValue("shape"), Login: r.PostFormValue("login"), Auth: r.PostFormValue("auth"),
 		Public: list("public"), Roles: list("roles"), ManagerRole: strings.TrimSpace(r.PostFormValue("manager_role")),
 		Review: r.PostFormValue("review"), Realtime: r.PostFormValue("realtime") == "1",
+		PocketBase: r.PostFormValue("pocketbase") == "1",
 	}
 	if m := r.PostFormValue("memory"); m != "" {
 		n, err := strconv.Atoi(m)

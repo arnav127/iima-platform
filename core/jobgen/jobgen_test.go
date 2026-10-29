@@ -108,8 +108,8 @@ func TestJobRefusals(t *testing.T) {
 	if _, err := Build(cluster, noVol, release); err == nil {
 		t.Error("PocketBase app without a volume accepted")
 	}
-	if _, err := Build(cluster, app(t, "id=\"web\"\nname=\"W\"\npath=\"/web\"\nshape=\"next\""), release); err == nil {
-		t.Error("next shape accepted before phase 6")
+	if _, err := Build(cluster, app2(t, "python"), release); err == nil {
+		t.Error("python shape accepted before it is supported")
 	}
 }
 
@@ -140,4 +140,61 @@ func TestBinarySuffix(t *testing.T) {
 			t.Fatalf("suffix %q: command %v, want %s", suffix, got, want)
 		}
 	}
+}
+
+func TestNextWithPocketBase(t *testing.T) {
+	a := app(t, `id = "betamarkets"
+name = "BetaMarkets"
+path = "/betamarkets"
+shape = "next"
+pocketbase = true
+volume = "betamarkets-data"
+`)
+	rel := Release{Version: "build-1", ArtifactURL: "http://core/platform/artifacts/x.tar.gz", SHA256: strings.Repeat("b", 64), Env: map[string]string{"X": "1"}}
+	j, err := Build(Cluster{Datacenter: "dc1", Driver: "exec", PublicURL: "https://students.iima.ac.in"}, a, rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tg := j.TaskGroups[0]
+	if len(tg.Tasks) != 2 || tg.Tasks[0].Name != "pocketbase" || tg.Tasks[1].Name != "app" {
+		t.Fatalf("tasks: %+v", tg.Tasks)
+	}
+	pb, app := tg.Tasks[0], tg.Tasks[1]
+	if pb.Lifecycle == nil || pb.Lifecycle.Hook != "prestart" || !pb.Lifecycle.Sidecar {
+		t.Fatalf("pocketbase must be a prestart sidecar: %+v", pb.Lifecycle)
+	}
+	args := pb.Config["args"].([]string)
+	if args[2] != "127.0.0.1:${NOMAD_PORT_pb}" || args[4] != "/data" {
+		t.Fatalf("pocketbase must listen on loopback with its data on the volume: %v", args)
+	}
+	if len(pb.VolumeMounts) != 1 || len(app.VolumeMounts) != 0 || tg.Volumes["data"].Source != "betamarkets-data" {
+		t.Fatal("only PocketBase mounts the data volume")
+	}
+	if app.Config["command"] != "node" || app.Env["POCKETBASE_URL"] != "http://127.0.0.1:${NOMAD_PORT_pb}" || app.Env["X"] != "1" {
+		t.Fatalf("app task: %v %v", app.Config, app.Env)
+	}
+	if len(pb.Artifacts) != 1 || len(pb.Templates) != 1 {
+		t.Fatal("pocketbase needs the build and the secrets (its superuser)")
+	}
+	if c := tg.Services[0].Checks[0]; c.Path != "/betamarkets/api/health" {
+		t.Fatalf("health check %q: Next keeps its base path", c.Path)
+	}
+	for _, tag := range tg.Services[0].Tags {
+		if strings.Contains(tag, "strip") {
+			t.Fatalf("Next apps are not stripped: %s", tag)
+		}
+	}
+
+	// Without pocketbase, one task; a Go app cannot ask for the sidecar.
+	plain := app2(t, "next")
+	if j, err := Build(Cluster{Datacenter: "dc1", Driver: "exec"}, plain, rel); err != nil || len(j.TaskGroups[0].Tasks) != 1 {
+		t.Fatalf("plain next: %v", err)
+	}
+	if _, err := registry.Parse([]byte("id = \"g\"\nname = \"G\"\npath = \"/g\"\nshape = \"go\"\npocketbase = true\n")); err == nil {
+		t.Fatal("pocketbase = true on a Go app accepted")
+	}
+}
+
+func app2(t *testing.T, shape string) *registry.App {
+	return app(t, "id = \"web\"\nname = \"W\"\npath = \"/web\"\nshape = \""+shape+"\"\n")
 }

@@ -1,0 +1,10 @@
+:root { color-scheme: light dark; --fg: #1b1b1f; --muted: #5f6068; --bg: #f6f5f3; --line: #e4e2de; --accent: #8a1538; }
+@media (prefers-color-scheme: dark) { :root { --fg: #f1f0ee; --muted: #a9a9b0; --bg: #121214; --line: #2d2d32; --accent: #e0577f; } }
+body { margin: 0; font: 15px/1.55 ui-sans-serif, system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+main { max-width: 40rem; margin: 3rem auto; padding: 0 1.25rem; }
+a { color: var(--accent); }
+.muted { color: var(--muted); }
+.error { color: #b42318; }
+form { display: flex; gap: .5rem; margin: 1rem 0; }
+input { flex: 1; padding: .55rem .7rem; border: 1px solid var(--line); border-radius: 9px; font: inherit; background: transparent; color: var(--fg); }
+.btn { display: inline-block; padding: .55rem 1rem; border-radius: 9px; border: 1px solid var(--accent); background: var(--accent); color: #fff; font: inherit; cursor: pointer; text-decoration: none; }

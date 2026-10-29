@@ -271,6 +271,14 @@ func (p *Portal) UpdateSettings(ctx context.Context, actor, id string, next *reg
 		return false, err
 	}
 	next.ID = id // the id is the job name and token audience: fixed for good
+	if next.Volume == "" {
+		// The form has no volume field: keep the one the app has (renaming it would lose its data).
+		if cur, pend := p.Settings(pa); cur != nil {
+			next.Volume = cur.Volume
+		} else if pend != nil {
+			next.Volume = pend.Volume
+		}
+	}
 	defaults(next)
 	if err := next.Normalize(); err != nil {
 		return false, UserError(err.Error())
@@ -314,7 +322,7 @@ func (p *Portal) UpdateSettings(ctx context.Context, actor, id string, next *reg
 
 func sameRouting(a, b *registry.App) bool {
 	return a.Path == b.Path && a.Login == b.Login && a.Auth == b.Auth && a.Shape == b.Shape &&
-		a.Volume == b.Volume && a.Strips() == b.Strips() && slices.Equal(a.Public, b.Public)
+		a.Volume == b.Volume && a.PocketBase == b.PocketBase && a.Strips() == b.Strips() && slices.Equal(a.Public, b.Public)
 }
 
 func copyNonRouting(dst, src *registry.App) {
@@ -323,7 +331,7 @@ func copyNonRouting(dst, src *registry.App) {
 
 func defaults(a *registry.App) {
 	a.Owners = nil // owners live in the portal's table, editable there
-	if a.Shape == "go-pocketbase" && a.Volume == "" {
+	if (a.Shape == "go-pocketbase" || a.PocketBase) && a.Volume == "" {
 		a.Volume = a.ID + "-data"
 	}
 }

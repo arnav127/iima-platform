@@ -151,6 +151,10 @@ func runNomad(s nomadSetup) error {
 		fmt.Printf("    http://localhost:8080%s/   (%s)\n", a.Path, a.Name)
 	}
 	fmt.Println("    Nomad UI: http://127.0.0.1:4646/ui   Logs: .dev\\bin\\nomad alloc logs -job <id>")
+	if s.portal {
+		fmt.Println("    Portal: sign in as " + demoOwner + " and connect " + demoRepo + " or " + demoNextRepo)
+		fmt.Println("    at http://localhost:8080/admin/apps/new, then approve as " + demoSuper + ".")
+	}
 	fmt.Println("    Ctrl+C to stop.")
 
 	<-g.firstExit(ctx)

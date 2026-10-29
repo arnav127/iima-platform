@@ -72,3 +72,15 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: VITE_BASE=/myapp/ npm run build
+
+  template-next:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: cd kit-js && npm ci
+      - run: cd template/next && npm ci && npm run typecheck && npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"

@@ -80,8 +80,15 @@ type Task struct {
 	Artifacts    []*Artifact       `json:"Artifacts,omitempty"`
 	Templates    []*Template       `json:"Templates,omitempty"`
 	VolumeMounts []*VolumeMount    `json:"VolumeMounts,omitempty"`
+	Lifecycle    *Lifecycle        `json:"Lifecycle,omitempty"`
 	Resources    *Resources        `json:"Resources,omitempty"`
 	KillTimeout  int64             `json:"KillTimeout,omitempty"`
+}
+
+// Lifecycle makes a task start before the main one; Sidecar keeps it running alongside.
+type Lifecycle struct {
+	Hook    string `json:"Hook"`
+	Sidecar bool   `json:"Sidecar"`
 }
 
 type Artifact struct {

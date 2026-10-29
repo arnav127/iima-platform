@@ -111,10 +111,31 @@ func run(googleOnly, nomadMode, portalMode bool, realApps map[string]string) err
 	}
 	// Real apps come from the registry (apps/); their code from the sibling repo.
 	var reals []realApp
+	// Apps run from their own app.toml go into an extra registry folder, so core knows them too.
+	extra := filepath.Join(dev, "registry")
+	if err := os.RemoveAll(extra); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(extra, 0o755); err != nil {
+		return err
+	}
 	for id, dir := range realApps {
 		a := reg.ByID(id)
 		if a == nil {
-			return fmt.Errorf("-app %s: not in the registry", id)
+			// Not in the platform's registry: use the repo's own app.toml (an app not yet connected).
+			b, err := os.ReadFile(filepath.Join(dir, "app.toml"))
+			if err != nil {
+				return fmt.Errorf("-app %s: not in the registry and no app.toml in %s", id, dir)
+			}
+			if a, err = registry.Parse(b); err != nil {
+				return fmt.Errorf("-app %s: %s/app.toml: %w", id, dir, err)
+			}
+			if a.ID != id {
+				return fmt.Errorf("-app %s: %s/app.toml says id = %q", id, dir, a.ID)
+			}
+			if err := os.WriteFile(filepath.Join(extra, id+".toml"), b, 0o644); err != nil {
+				return err
+			}
 		}
 		if a.Shape != "go-pocketbase" && a.Shape != "next" {
 			return fmt.Errorf("-app %s: devstack runs go-pocketbase and next apps (this one is %s)", id, a.Shape)
@@ -150,7 +171,7 @@ func run(googleOnly, nomadMode, portalMode bool, realApps map[string]string) err
 			// The app builds itself (npm run build); devstack only needs the platform's PocketBase.
 			if !builtPB {
 				step("building the platform's PocketBase")
-				if err := goBuild(filepath.Join(root, "pocketbase"), pbBin, "."); err != nil {
+				if err := goBuildAlone(filepath.Join(root, "pocketbase"), pbBin, "."); err != nil {
 					return err
 				}
 				builtPB = true
@@ -189,7 +210,7 @@ func run(googleOnly, nomadMode, portalMode bool, realApps map[string]string) err
 		"CORE_ADDR":  coreAddr,
 		"PUBLIC_URL": "http://localhost:8080",
 		"CORE_DATA":  filepath.Join(dev, "core-data"),
-		"REGISTRY":   filepath.Join(root, "apps") + "," + filepath.Join(root, "dev", "apps"),
+		"REGISTRY":   filepath.Join(root, "apps") + "," + filepath.Join(root, "dev", "apps") + "," + extra,
 	}
 	if !googleOnly {
 		coreEnv["CORE_DEV_LOGIN"] = "1"
@@ -309,6 +330,16 @@ func merge(ms ...map[string]string) map[string]string {
 func goBuild(moduleDir, out, pkg string) error {
 	cmd := exec.Command("go", "build", "-o", out, pkg)
 	cmd.Dir = moduleDir
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	return cmd.Run()
+}
+
+// goBuildAlone builds a module with its own go.mod versions, outside the workspace (as CI does).
+// For PocketBase, whose SQLite driver must be the exact version it was tested with.
+func goBuildAlone(moduleDir, out, pkg string) error {
+	cmd := exec.Command("go", "build", "-o", out, pkg)
+	cmd.Dir = moduleDir
+	cmd.Env = append(os.Environ(), "GOWORK=off")
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Run()
 }

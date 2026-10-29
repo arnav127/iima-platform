@@ -11,56 +11,62 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/arnav127/iima-platform/core/github/githubtest"
 )
 
 // The deploy portal on a laptop (-nomad -portal): a fake GitHub that has the platform's App
-// installed on one repo, iima-clubs/myapp, whose release is the app template built for this machine.
-// Core gets the App's credentials and Nomad, so the whole flow runs locally: connect the repo at
-// /admin/apps/new as you@iima.ac.in, approve it as admin@iima.ac.in, and it deploys.
+// installed on two repos, whose first releases are the two app templates built for this machine
+// and packed the way the build workflow packs them. Core gets the App's credentials and Nomad, so
+// the whole flow runs locally: connect a repo at /admin/apps/new as you@iima.ac.in, approve it as
+// admin@iima.ac.in, and it deploys.
 const (
-	demoRepo  = "iima-clubs/myapp"
-	demoOwner = "you@iima.ac.in"
-	demoSuper = "admin@iima.ac.in"
+	demoRepo     = "iima-clubs/myapp"     // template/go-pocketbase, at /myapp
+	demoNextRepo = "iima-clubs/mynextapp" // template/next, at /mynextapp
+	demoOwner    = "you@iima.ac.in"
+	demoSuper    = "admin@iima.ac.in"
 )
 
 func portalDemo(s nomadSetup, cluster string) (env map[string]string, stop func(), err error) {
-	tmpl := filepath.Join(s.root, "template", "go-pocketbase")
-	step("building the app template as the demo repo's first release")
-	artifact, err := buildTemplate(s, tmpl)
-	if err != nil {
-		return nil, nil, err
-	}
-	toml, err := os.ReadFile(filepath.Join(tmpl, "app.toml"))
-	if err != nil {
-		return nil, nil, err
-	}
-
 	gh := githubtest.New()
-	gh.AddRepo(demoRepo, 1, map[string][]byte{"app.toml": toml})
-	gh.AddRelease(demoRepo, "build-0000001", strings.Repeat("0", 39)+"1", artifact)
+	fail := func(err error) (map[string]string, func(), error) {
+		gh.Close()
+		return nil, nil, err
+	}
+	for repo, build := range map[string]func(nomadSetup) ([]byte, string, error){demoRepo: buildGoTemplate, demoNextRepo: buildNextTemplate} {
+		step("building " + repo + "'s first release")
+		artifact, dir, err := build(s)
+		if err != nil {
+			return fail(err)
+		}
+		toml, err := os.ReadFile(filepath.Join(dir, "app.toml"))
+		if err != nil {
+			return fail(err)
+		}
+		inst := int64(1)
+		if repo == demoNextRepo {
+			inst = 2
+		}
+		gh.AddRepo(repo, inst, map[string][]byte{"app.toml": toml})
+		gh.AddRelease(repo, "build-0000001", strings.Repeat("0", 39)+"1", artifact)
+	}
 
 	keyFile := filepath.Join(s.dev, "github-app.pem")
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(gh.Key)})
 	if err := os.WriteFile(keyFile, keyPEM, 0o600); err != nil {
-		gh.Close()
-		return nil, nil, err
+		return fail(err)
 	}
 	clusterFile := filepath.Join(s.dev, "cluster.toml")
 	if err := os.WriteFile(clusterFile, []byte(cluster), 0o600); err != nil {
-		gh.Close()
-		return nil, nil, err
+		return fail(err)
 	}
 
 	// Super admin for approving, before core starts.
 	cmd := exec.Command(s.coreBin, "superadmin", "add", demoSuper)
 	cmd.Env = append(os.Environ(), "CORE_DATA="+filepath.Join(s.dev, "core-data"))
 	if out, err := cmd.CombinedOutput(); err != nil {
-		gh.Close()
-		return nil, nil, fmt.Errorf("superadmin add: %v: %s", err, out)
+		return fail(fmt.Errorf("superadmin add: %v: %s", err, out))
 	}
 
 	return map[string]string{
@@ -75,20 +81,69 @@ func portalDemo(s nomadSetup, cluster string) (env map[string]string, stop func(
 	}, gh.Close, nil
 }
 
-// buildTemplate builds the template's frontend and backend for this machine and packs them the way
-// the platform's build workflow does: ./app (./app.exe on Windows) and ./pb_public.
-func buildTemplate(s nomadSetup, tmpl string) ([]byte, error) {
-	npm := exec.Command("npm", "run", "build")
-	npm.Dir = tmpl
-	npm.Env = append(os.Environ(), "VITE_BASE=/myapp/")
-	if out, err := npm.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("template frontend (npm install in %s first?): %v\n%s", tmpl, err, out)
+// buildGoTemplate builds template/go-pocketbase: ./app (./app.exe on Windows) and ./pb_public.
+func buildGoTemplate(s nomadSetup) ([]byte, string, error) {
+	tmpl := filepath.Join(s.root, "template", "go-pocketbase")
+	if err := runIn(tmpl, []string{"VITE_BASE=/myapp/"}, "npm", "run", "build"); err != nil {
+		return nil, "", fmt.Errorf("template frontend (npm install in %s first?): %w", tmpl, err)
 	}
 	bin := filepath.Join(s.bin, exe("myapp"))
 	if err := goBuild(filepath.Join(tmpl, "backend"), bin, "."); err != nil {
-		return nil, err
+		return nil, "", err
 	}
+	b, err := pack([]entry{{exe("app"), bin}, {"pb_public", filepath.Join(tmpl, "backend", "pb_public")}})
+	return b, tmpl, err
+}
 
+// buildNextTemplate builds template/next like the workflow's Next.js steps: Next's standalone
+// server under ./app (with an entry file when Next nests it), its static files, and the platform's
+// PocketBase with the app's migrations.
+func buildNextTemplate(s nomadSetup) ([]byte, string, error) {
+	tmpl := filepath.Join(s.root, "template", "next")
+	if err := runIn(tmpl, []string{"NEXT_TELEMETRY_DISABLED=1"}, "npm", "run", "build"); err != nil {
+		return nil, "", fmt.Errorf("Next template (npm install in %s first?): %w", tmpl, err)
+	}
+	standalone := filepath.Join(tmpl, ".next", "standalone")
+	sub := ""
+	err := filepath.WalkDir(standalone, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || sub != "" {
+			return err
+		}
+		if d.IsDir() && d.Name() == "node_modules" {
+			return filepath.SkipDir
+		}
+		if d.Name() == "server.js" {
+			rel, _ := filepath.Rel(standalone, filepath.Dir(p))
+			sub = filepath.ToSlash(rel)
+		}
+		return nil
+	})
+	if err != nil || sub == "" {
+		return nil, "", fmt.Errorf("no server.js in %s (output: 'standalone' in next.config?)", standalone)
+	}
+	pbBin := filepath.Join(s.bin, exe("pocketbase"))
+	if err := goBuildAlone(filepath.Join(s.root, "pocketbase"), pbBin, "."); err != nil {
+		return nil, "", err
+	}
+	entries := []entry{
+		{"app", standalone},
+		{"app/" + sub + "/.next/static", filepath.Join(tmpl, ".next", "static")},
+		{"app/" + sub + "/public", filepath.Join(tmpl, "public")},
+		{exe("pocketbase"), pbBin},
+		{"pb_migrations", filepath.Join(tmpl, "pb_migrations")},
+	}
+	if sub != "." {
+		entries = append(entries, entry{"app/server.js", "require('./" + sub + "/server.js')\n"})
+	}
+	b, err := pack(entries)
+	return b, tmpl, err
+}
+
+// entry is one thing in the artifact: a file or directory from disk, or (when src does not exist
+// as a path) the literal content of a small file.
+type entry struct{ dest, src string }
+
+func pack(entries []entry) ([]byte, error) {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
@@ -99,31 +154,44 @@ func buildTemplate(s nomadSetup, tmpl string) ([]byte, error) {
 		_, err := tw.Write(b)
 		return err
 	}
-	b, err := os.ReadFile(bin)
-	if err != nil {
-		return nil, err
-	}
-	name := "app"
-	if runtime.GOOS == "windows" {
-		name = "app.exe"
-	}
-	if err := add(name, 0o755, b); err != nil {
-		return nil, err
-	}
-	public := filepath.Join(tmpl, "backend", "pb_public")
-	err = filepath.WalkDir(public, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		rel, _ := filepath.Rel(public, p)
-		data, err := os.ReadFile(p)
+	for _, e := range entries {
+		st, err := os.Stat(e.src)
 		if err != nil {
-			return err
+			if strings.Contains(e.src, "\n") { // literal content
+				if err := add(e.dest, 0o644, []byte(e.src)); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			if os.IsNotExist(err) {
+				continue // an optional folder, like public/
+			}
+			return nil, err
 		}
-		return add("pb_public/"+filepath.ToSlash(rel), 0o644, data)
-	})
-	if err != nil {
-		return nil, err
+		if !st.IsDir() {
+			b, err := os.ReadFile(e.src)
+			if err != nil {
+				return nil, err
+			}
+			if err := add(e.dest, 0o755, b); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		err = filepath.WalkDir(e.src, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !d.Type().IsRegular() {
+				return err
+			}
+			rel, _ := filepath.Rel(e.src, p)
+			b, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			return add(e.dest+"/"+filepath.ToSlash(rel), 0o644, b)
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err := tw.Close(); err != nil {
 		return nil, err
@@ -132,4 +200,14 @@ func buildTemplate(s nomadSetup, tmpl string) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func runIn(dir string, env []string, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%v\n%s", err, out)
+	}
+	return nil
 }

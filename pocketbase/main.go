@@ -7,6 +7,10 @@
 // public route; the app server is the only client), and automigrate and hook watching off by
 // default (on the cluster nothing should write migration files or restart on its own).
 //
+// One addition: with PB_ADMIN_EMAIL and PB_ADMIN_PASSWORD set (the app's secrets on the platform),
+// it makes sure that superuser exists on every start, so a new app's data needs no manual setup and
+// the app server and PocketBase always agree on the credentials.
+//
 //	pocketbase serve --http 127.0.0.1:8091 --dir data --migrationsDir pb_migrations --hooksDir pb_hooks
 //	pocketbase superuser upsert you@iima.ac.in <password> --dir data
 package main
@@ -16,6 +20,7 @@ import (
 	"os"
 
 	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/plugins/jsvm"
 	"github.com/pocketbase/pocketbase/plugins/migratecmd"
 )
@@ -43,7 +48,35 @@ func main() {
 		Dir:          migrationsDir,
 	})
 
+	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+		email, password := os.Getenv("PB_ADMIN_EMAIL"), os.Getenv("PB_ADMIN_PASSWORD")
+		if email != "" && password != "" {
+			if err := ensureSuperuser(e.App, email, password); err != nil {
+				return err
+			}
+		}
+		return e.Next()
+	})
+
 	if err := app.Start(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// ensureSuperuser creates the superuser, or resets its password when it no longer matches. A
+// matching password is left alone: setting it again would sign out the app server's session.
+func ensureSuperuser(app core.App, email, password string) error {
+	col, err := app.FindCachedCollectionByNameOrId(core.CollectionNameSuperusers)
+	if err != nil {
+		return err
+	}
+	rec, err := app.FindAuthRecordByEmail(col, email)
+	if err != nil {
+		rec = core.NewRecord(col)
+		rec.SetEmail(email)
+	} else if rec.ValidatePassword(password) {
+		return nil
+	}
+	rec.SetPassword(password)
+	return app.Save(rec)
 }
