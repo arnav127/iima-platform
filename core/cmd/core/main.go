@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arnav127/iima-platform/core/portal"
 	"github.com/arnav127/iima-platform/core/registry"
 	"github.com/arnav127/iima-platform/core/server"
 	"github.com/arnav127/iima-platform/core/store"
@@ -92,10 +93,16 @@ func command(args []string) error {
 		}
 		return err
 	case len(args) >= 3 && args[0] == "roles":
-		reg, err := registry.LoadDirs(strings.Split(env("REGISTRY", "apps"), ",")...)
+		files, err := registry.LoadDirs(strings.Split(env("REGISTRY", "apps"), ",")...)
 		if err != nil {
 			return err
 		}
+		// Approved portal apps too (no GitHub or Nomad needed to read them).
+		p, err := portal.New(ctx, portal.Config{Store: st, FileApps: files.Apps()})
+		if err != nil {
+			return err
+		}
+		reg := p.Registry()
 		app := reg.ByID(args[2])
 		if app == nil {
 			return fmt.Errorf("no app %q in the registry", args[2])
@@ -183,17 +190,27 @@ func run(log *slog.Logger) error {
 		log.Warn("DEV LOGIN IS ON: anyone can sign in as any email. Never use this outside your laptop.")
 	}
 
-	srv := server.New(server.Config{
-		PublicURL: publicURL, MemberDomain: env("MEMBER_DOMAIN", "iima.ac.in"), SessionTTL: sessionTTL,
-		DevLogin: devLogin, Registry: reg, Store: st, Signer: signer, Provider: provider, Log: log,
-	})
-	go srv.Cleanup(ctx, 10*time.Minute)
-
 	// Under Nomad: the allocated address (joined properly, as it may be IPv6). Otherwise CORE_ADDR.
 	addr := env("CORE_ADDR", "127.0.0.1:4180")
 	if ip, port := os.Getenv("NOMAD_IP_http"), os.Getenv("NOMAD_PORT_http"); ip != "" && port != "" && os.Getenv("CORE_ADDR") == "" {
 		addr = net.JoinHostPort(ip, port)
 	}
+
+	p, err := newPortal(ctx, log, st, reg, dataDir, addr)
+	if err != nil {
+		return err
+	}
+	every, err := time.ParseDuration(env("PORTAL_SYNC", "2m"))
+	if err != nil {
+		return fmt.Errorf("PORTAL_SYNC: %w", err)
+	}
+	go p.Run(ctx, every)
+
+	srv := server.New(server.Config{
+		PublicURL: publicURL, MemberDomain: env("MEMBER_DOMAIN", "iima.ac.in"), SessionTTL: sessionTTL,
+		DevLogin: devLogin, Registry: reg, Portal: p, Store: st, Signer: signer, Provider: provider, Log: log,
+	})
+	go srv.Cleanup(ctx, 10*time.Minute)
 	hs := &http.Server{Addr: addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -201,7 +218,7 @@ func run(log *slog.Logger) error {
 		defer cancel()
 		_ = hs.Shutdown(shutdown)
 	}()
-	log.Info("core listening", "addr", addr, "public_url", publicURL.String(), "apps", len(reg.Apps()), "google", provider != nil, "dev_login", devLogin)
+	log.Info("core listening", "addr", addr, "public_url", publicURL.String(), "apps", len(p.Registry().Apps()), "google", provider != nil, "dev_login", devLogin)
 	if err := hs.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

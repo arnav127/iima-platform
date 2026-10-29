@@ -28,77 +28,108 @@ type adminData struct {
 	Person                *person
 	Query                 string
 	Affiliations          []string
+	Portal                bool        // the deploy portal is on
+	PortalApps            []portalRow // apps this person owns, or every portal app for super admins
+}
+
+type portalRow struct {
+	ID, Name, Path, Repo, Status string
+	Waiting                      bool // has settings waiting for approval
 }
 
 var adminPages = template.Must(template.Must(pages.Clone()).Funcs(template.FuncMap{
 	"has": func(list []string, v string) bool { return slices.Contains(list, v) },
 }).Parse(`
-{{define "adminnav"}}<nav class="admin"><a href="/admin">Apps</a>{{if .Actor.Super}}<a href="/admin/people">People</a><a href="/admin/super-admins">Super admins</a><a href="/admin/audit">Audit log</a>{{end}}<span class="muted">{{.Actor.Email}}</span></nav>
-{{if .Message}}<div class="note">{{.Message}}</div>{{end}}{{if .Error}}<div class="note err">{{.Error}}</div>{{end}}{{end}}
+{{define "adminnav"}}<div class="subnav"><a href="/admin"{{if eq .Title "Dashboard"}} class="on"{{end}}>Dashboard</a>{{if .Actor.Super}}<a href="/admin/people"{{if eq .Title "People"}} class="on"{{end}}>People</a><a href="/admin/super-admins"{{if eq .Title "Super admins"}} class="on"{{end}}>Super admins</a><a href="/admin/audit"{{if eq .Title "Audit log"}} class="on"{{end}}>Audit log</a>{{end}}</div>
+{{if .Message}}<div class="note ok">{{.Message}}</div>{{end}}{{if .Error}}<div class="note err">{{.Error}}</div>{{end}}{{end}}
 
-{{define "admin"}}{{template "top" .}}{{template "adminnav" .}}
-<h1>Apps you manage</h1>
-{{if .Apps}}<table><tr><th>App</th><th>Path</th><th>Login</th><th>Roles declared</th></tr>
-{{range .Apps}}<tr><td><a href="/admin/apps/{{.ID}}">{{.Name}}</a></td><td><code>{{.Path}}</code></td><td>{{.Login}}</td><td>{{range $i, $r := .Roles}}{{if $i}}, {{end}}{{$r}}{{else}}<span class="muted">none</span>{{end}}</td></tr>{{end}}
-</table>{{else}}<p>None yet.</p>{{end}}
-{{template "bottom"}}{{end}}
+{{define "statuspill"}}{{if eq . "approved"}}<span class="pill ok">live</span>{{else if eq . "pending"}}<span class="pill warn">waiting for approval</span>{{else}}<span class="pill bad">turned down</span>{{end}}{{end}}
 
-{{define "adminapp"}}{{template "top" .}}{{template "adminnav" .}}
+{{define "admin"}}{{template "top" .}}
+<div class="head"><div><h1>Dashboard</h1><p class="muted">{{if .Actor.Super}}You are a super admin: you approve new apps and appoint app admins.{{else}}Your apps and the roles you manage.{{end}}</p></div>
+{{if .Portal}}<a class="btn" href="/admin/apps/new">Connect an app</a>{{end}}</div>
+{{template "adminnav" .}}
+{{if .Portal}}
+{{if .Actor.Super}}{{$w := false}}{{range .PortalApps}}{{if .Waiting}}{{$w = true}}{{end}}{{end}}
+{{if $w}}<div class="section"><h2>Waiting for your approval</h2><table><tr><th>App</th><th>Path</th><th>Repo</th><th></th></tr>
+{{range .PortalApps}}{{if .Waiting}}<tr><td><b>{{.Name}}</b></td><td><code>{{.Path}}</code></td><td>{{.Repo}}</td><td><a class="btn sm" href="/admin/apps/{{.ID}}/deploy">Review</a></td></tr>{{end}}{{end}}
+</table></div>{{end}}{{end}}
+<div class="section"><h2>{{if .Actor.Super}}All deployed apps{{else}}Your apps{{end}}</h2>
+{{if .PortalApps}}<table><tr><th>App</th><th>Path</th><th>Repo</th><th>Status</th></tr>
+{{range .PortalApps}}<tr><td><a href="/admin/apps/{{.ID}}/deploy"><b>{{.Name}}</b></a></td><td><code>{{.Path}}</code></td><td class="muted">{{.Repo}}</td><td>{{template "statuspill" .Status}}{{if and .Waiting (eq .Status "approved")}} <span class="pill warn">change waiting</span>{{end}}</td></tr>{{end}}
+</table>{{else}}<p class="muted">Nothing here yet. <a href="/admin/apps/new">Connect a GitHub repo</a> to host your app on this site.</p>{{end}}</div>
+{{end}}
+<div class="section"><h2>Roles you manage</h2>
+{{if .Apps}}<table><tr><th>App</th><th>Path</th><th>Who may sign in</th><th>Roles</th></tr>
+{{range .Apps}}<tr><td><a href="/admin/apps/{{.ID}}"><b>{{.Name}}</b></a></td><td><code>{{.Path}}</code></td><td>{{if eq .Login "external"}}any Google account{{else}}@iima.ac.in{{end}}</td><td>{{range $i, $r := .Roles}}{{if $i}}, {{end}}{{$r}}{{else}}<span class="muted">none</span>{{end}}</td></tr>{{end}}
+</table>{{else}}<p class="muted">You don't manage roles in any app.</p>{{end}}</div>
+{{template "bottom" .}}{{end}}
+
+{{define "adminapp"}}{{template "top" .}}
 {{$app := .App}}
-<h1>{{.App.Name}}</h1>
-<p class="muted"><code>{{.App.Path}}</code> · login {{.App.Login}} · roles come from its <code>app.toml</code></p>
-<h3>Roles</h3>
-{{if not .App.Roles}}<p>This app declares no roles.</p>{{else}}
-<table><tr><th>Email</th><th>Roles</th></tr>
+<div class="head"><div><h1>{{.App.Name}}: roles</h1><p class="muted"><code>{{.App.Path}}</code> · {{if eq .App.Login "external"}}any Google account{{else}}@iima.ac.in accounts{{end}}</p></div>
+<a class="btn ghost" href="/admin">Dashboard</a></div>
+{{if .Message}}<div class="note ok">{{.Message}}</div>{{end}}{{if .Error}}<div class="note err">{{.Error}}</div>{{end}}
+<div class="section"><h2>Roles</h2>
+{{if not .App.Roles}}<p class="muted">This app declares no roles.</p>{{else}}
+<table><tr><th>Person</th><th>Roles</th></tr>
 {{range .Grants}}<tr><td>{{.Email}}</td><td>
 <form class="inline" method="post" action="/admin/apps/{{$app.ID}}/roles"><input type="hidden" name="email" value="{{.Email}}">
 {{$g := .}}{{range $app.Roles}}<label class="chk"><input type="checkbox" name="role" value="{{.}}"{{if has $g.Roles .}} checked{{end}}>{{.}}</label>{{end}}
-<button class="btn sm" type="submit">Save</button></form></td></tr>{{end}}
+<button class="btn sm ghost" type="submit">Save</button></form></td></tr>{{else}}<tr><td colspan="2" class="muted">Nobody has a role yet.</td></tr>{{end}}
 </table>
 <form class="inline" method="post" action="/admin/apps/{{$app.ID}}/roles" style="margin-top:1rem">
 <input type="email" name="email" required placeholder="someone@iima.ac.in">
 {{range $app.Roles}}<label class="chk"><input type="checkbox" name="role" value="{{.}}">{{.}}</label>{{end}}
 <button class="btn sm" type="submit">Grant</button></form>
-<p class="muted">Untick every role and save to remove someone. Changes reach the app on its next request.</p>{{end}}
-<h3>App admins</h3>
-<p class="muted">App admins manage this app's roles, here or from the app's own screens.</p>
-<table>{{range .Admins}}<tr><td>{{.Email}}</td><td>{{if $.Actor.Super}}<form class="inline" method="post" action="/admin/apps/{{$app.ID}}/admins"><input type="hidden" name="email" value="{{.Email}}"><input type="hidden" name="action" value="remove"><button class="btn sm alt" type="submit">Remove</button></form>{{end}}</td></tr>{{else}}<tr><td class="muted">None</td><td></td></tr>{{end}}</table>
-{{if .Actor.Super}}<form class="inline" method="post" action="/admin/apps/{{$app.ID}}/admins" style="margin-top:.75rem"><input type="email" name="email" required placeholder="owner@iima.ac.in"><input type="hidden" name="action" value="add"><button class="btn sm" type="submit">Add app admin</button></form>{{end}}
-<h3>Recent changes</h3>{{template "audittable" .Audit}}
-{{template "bottom"}}{{end}}
+<p class="hint">Untick every role and save to remove someone. Changes reach the app on its next request.</p>{{end}}</div>
+<div class="section"><h2>App admins</h2>
+<p class="muted small">App admins manage this app's roles, here or from the app's own screens.</p>
+<table>{{range .Admins}}<tr><td>{{.Email}}</td><td style="text-align:right">{{if $.Actor.Super}}<form class="inline" method="post" action="/admin/apps/{{$app.ID}}/admins"><input type="hidden" name="email" value="{{.Email}}"><input type="hidden" name="action" value="remove"><button class="btn sm danger" type="submit">Remove</button></form>{{end}}</td></tr>{{else}}<tr><td class="muted">None</td><td></td></tr>{{end}}</table>
+{{if .Actor.Super}}<form class="inline" method="post" action="/admin/apps/{{$app.ID}}/admins" style="margin-top:.75rem"><input type="email" name="email" required placeholder="owner@iima.ac.in"><input type="hidden" name="action" value="add"><button class="btn sm" type="submit">Add app admin</button></form>{{end}}</div>
+<div class="section"><h2>Recent changes</h2>{{template "audittable" .Audit}}</div>
+{{template "bottom" .}}{{end}}
 
 {{define "audittable"}}{{if .}}<table><tr><th>When (IST)</th><th>Who</th><th>What</th><th>App</th><th>Whom</th><th>Detail</th></tr>
-{{range .}}<tr><td>{{.At}}</td><td>{{.Actor}}</td><td>{{.Action}}</td><td>{{.App}}</td><td>{{.Target}}</td><td><code>{{.Detail}}</code></td></tr>{{end}}</table>{{else}}<p class="muted">Nothing yet.</p>{{end}}{{end}}
+{{range .}}<tr><td class="small">{{.At}}</td><td class="small">{{.Actor}}</td><td><span class="pill">{{.Action}}</span></td><td>{{.App}}</td><td class="small">{{.Target}}</td><td><code>{{.Detail}}</code></td></tr>{{end}}</table>{{else}}<p class="muted">Nothing yet.</p>{{end}}{{end}}
 
-{{define "adminaudit"}}{{template "top" .}}{{template "adminnav" .}}<h1>Audit log</h1>{{template "audittable" .Audit}}{{template "bottom"}}{{end}}
+{{define "adminaudit"}}{{template "top" .}}<div class="head"><h1>Audit log</h1></div>{{template "adminnav" .}}<div class="section">{{template "audittable" .Audit}}</div>{{template "bottom" .}}{{end}}
 
-{{define "adminpeople"}}{{template "top" .}}{{template "adminnav" .}}
-<h1>People</h1>
-<form class="inline" method="get" action="/admin/people"><input type="email" name="email" required placeholder="p25someone@iima.ac.in" value="{{.Query}}"><button class="btn sm" type="submit">Look up</button></form>
+{{define "adminpeople"}}{{template "top" .}}
+<div class="head"><div><h1>People</h1><p class="muted">Look someone up: what their address says about them, their roles, and corrections.</p></div></div>
+{{template "adminnav" .}}
+<div class="section"><form class="inline" method="get" action="/admin/people"><input type="email" name="email" required placeholder="p25someone@iima.ac.in" value="{{.Query}}"><button class="btn sm" type="submit">Look up</button></form></div>
 {{with .Person}}
-<h3>{{.Email}}</h3>
-<table><tr><th>Affiliation</th><th>Programme</th><th>Batch</th><th>Year</th></tr>
-<tr><td>{{.Attributes.Affiliation}}</td><td>{{.Attributes.Programme}}</td><td>{{if .Attributes.Batch}}{{.Attributes.Batch}}{{end}}</td><td>{{if .Attributes.Year}}{{.Attributes.Year}}{{end}}</td></tr></table>
-<p class="muted">Worked out from the address{{if .Override}}, with the override below{{end}}. Year follows the academic year (from June).</p>
-<h3>Roles</h3>{{if .Roles}}<table>{{range $app, $r := .Roles}}<tr><td><a href="/admin/apps/{{$app}}">{{$app}}</a></td><td>{{range $i, $x := $r}}{{if $i}}, {{end}}{{$x}}{{end}}</td></tr>{{end}}</table>{{else}}<p class="muted">None.</p>{{end}}
-<h3>Override</h3>
-<form method="post" action="/admin/people"><input type="hidden" name="email" value="{{.Email}}">
-<label>Affiliation</label><select name="affiliation"><option value="">(derive)</option>{{$cur := ""}}{{with .Override}}{{$cur = .Affiliation}}{{end}}{{range $.Affiliations}}<option{{if eq . $cur}} selected{{end}}>{{.}}</option>{{end}}</select>
-<label>Programme</label><input name="programme" placeholder="(derive)" value="{{with .Override}}{{.Programme}}{{end}}">
-<label>Batch (year of entry)</label><input name="batch" type="number" placeholder="(derive)" value="{{with .Override}}{{if .Batch}}{{.Batch}}{{end}}{{end}}">
-<label>Note</label><input name="note" placeholder="why, e.g. exchange student 2026" value="{{with .Override}}{{.Note}}{{end}}">
+<div class="section"><h2>{{.Email}}</h2>
+<dl class="kv"><dt>Affiliation</dt><dd>{{.Attributes.Affiliation}}</dd><dt>Programme</dt><dd>{{.Attributes.Programme}}</dd><dt>Batch</dt><dd>{{if .Attributes.Batch}}{{.Attributes.Batch}}{{end}}</dd><dt>Year</dt><dd>{{if .Attributes.Year}}{{.Attributes.Year}}{{end}}</dd></dl>
+<p class="hint">Worked out from the address{{if .Override}}, with the override below{{end}}. Year follows the academic year (from June).</p>
+<h3>Roles</h3>{{if .Roles}}<table>{{range $app, $r := .Roles}}<tr><td><a href="/admin/apps/{{$app}}">{{$app}}</a></td><td>{{range $i, $x := $r}}{{if $i}}, {{end}}{{$x}}{{end}}</td></tr>{{end}}</table>{{else}}<p class="muted">None.</p>{{end}}</div>
+<div class="section"><h2>Override</h2>
+<form method="post" action="/admin/people"><input type="hidden" name="email" value="{{.Email}}"><div class="cols">
+<div><label>Affiliation</label><select name="affiliation"><option value="">(derive)</option>{{$cur := ""}}{{with .Override}}{{$cur = .Affiliation}}{{end}}{{range $.Affiliations}}<option{{if eq . $cur}} selected{{end}}>{{.}}</option>{{end}}</select></div>
+<div><label>Programme</label><input name="programme" placeholder="(derive)" value="{{with .Override}}{{.Programme}}{{end}}"></div>
+<div><label>Batch (year of entry)</label><input name="batch" type="number" placeholder="(derive)" value="{{with .Override}}{{if .Batch}}{{.Batch}}{{end}}{{end}}"></div>
+<div><label>Note</label><input name="note" placeholder="why, e.g. exchange student 2026" value="{{with .Override}}{{.Note}}{{end}}"></div></div>
 <div class="row"><button class="btn" type="submit">Save override</button></div>
-<p class="muted">Leave all three empty and save to go back to what the address says.</p></form>
+<p class="hint">Leave all three empty and save to go back to what the address says.</p></form></div>
 {{end}}
-{{template "bottom"}}{{end}}
+{{template "bottom" .}}{{end}}
 
-{{define "adminsupers"}}{{template "top" .}}{{template "adminnav" .}}
-<h1>Super admins</h1>
-<p class="muted">They create apps, appoint app admins and fix attributes. Keep two or three, so nobody gets locked out.</p>
-<table>{{range .Admins}}<tr><td>{{.Email}}</td><td class="muted">added by {{.AddedBy}}</td><td><form class="inline" method="post" action="/admin/super-admins"><input type="hidden" name="email" value="{{.Email}}"><input type="hidden" name="action" value="remove"><button class="btn sm alt" type="submit">Remove</button></form></td></tr>{{end}}</table>
-<form class="inline" method="post" action="/admin/super-admins" style="margin-top:1rem"><input type="email" name="email" required placeholder="someone@iima.ac.in"><input type="hidden" name="action" value="add"><button class="btn sm" type="submit">Add super admin</button></form>
-{{template "bottom"}}{{end}}
+{{define "adminsupers"}}{{template "top" .}}
+<div class="head"><div><h1>Super admins</h1><p class="muted">They approve apps, appoint app admins and fix attributes. Keep two or three, so nobody gets locked out.</p></div></div>
+{{template "adminnav" .}}
+<div class="section"><table>{{range .Admins}}<tr><td>{{.Email}}</td><td class="muted small">added by {{.AddedBy}}</td><td style="text-align:right"><form class="inline" method="post" action="/admin/super-admins"><input type="hidden" name="email" value="{{.Email}}"><input type="hidden" name="action" value="remove"><button class="btn sm danger" type="submit">Remove</button></form></td></tr>{{end}}</table>
+<form class="inline" method="post" action="/admin/super-admins" style="margin-top:1rem"><input type="email" name="email" required placeholder="someone@iima.ac.in"><input type="hidden" name="action" value="add"><button class="btn sm" type="submit">Add super admin</button></form></div>
+{{template "bottom" .}}{{end}}
 `))
+
+// Who is the signed-in person's email for the top bar.
+func (d adminData) Who() string {
+	if d.Actor == nil {
+		return ""
+	}
+	return d.Actor.Email
+}
 
 func (s *Server) renderAdmin(w http.ResponseWriter, status int, name string, d adminData) {
 	d.Wide = true
@@ -155,18 +186,33 @@ func flash(r *http.Request) (msg, errMsg string) {
 
 func (s *Server) adminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin", func(w http.ResponseWriter, r *http.Request) {
-		a := s.pageActor(w, r)
+		// With the portal on, any member may come here to connect an app.
+		var a *actor
+		if s.cfg.Portal != nil {
+			a = s.memberActor(w, r)
+		} else {
+			a = s.pageActor(w, r)
+		}
 		if a == nil {
 			return
 		}
 		var apps []*registry.App
-		for _, app := range s.cfg.Registry.Apps() {
+		for _, app := range s.registry().Apps() {
 			if a.canManage(app.ID) {
 				apps = append(apps, app)
 			}
 		}
-		msg, e := flash(r)
-		s.renderAdmin(w, http.StatusOK, "admin", adminData{Title: "Admin", Actor: a, Apps: apps, Message: msg, Error: e})
+		d := adminData{Title: "Dashboard", Actor: a, Apps: apps, Portal: s.cfg.Portal != nil}
+		d.Message, d.Error = flash(r)
+		if d.Portal {
+			rows, err := s.portalRows(r, a)
+			if err != nil {
+				s.serverError(w, "portal apps", err)
+				return
+			}
+			d.PortalApps = rows
+		}
+		s.renderAdmin(w, http.StatusOK, "admin", d)
 	})
 
 	appPage := func(w http.ResponseWriter, r *http.Request) (*actor, *registry.App) {
@@ -174,7 +220,7 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 		if a == nil {
 			return nil, nil
 		}
-		app := s.cfg.Registry.ByID(r.PathValue("app"))
+		app := s.registry().ByID(r.PathValue("app"))
 		if app == nil || !a.canManage(app.ID) {
 			s.handleNotFound(w, r)
 			return nil, nil

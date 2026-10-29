@@ -67,8 +67,13 @@ func main() {
 		return nil
 	})
 	nomadMode := flag.Bool("nomad", false, "run core and apps as Nomad jobs, with Traefik reading routes from Nomad (the cluster's layout)")
+	portalMode := flag.Bool("portal", false, "with -nomad: the deploy portal against a fake GitHub with one demo repo")
 	flag.Parse()
-	if err := run(*googleOnly, *nomadMode, realApps); err != nil {
+	if *portalMode && !*nomadMode {
+		fmt.Fprintln(os.Stderr, "devstack: -portal needs -nomad")
+		os.Exit(2)
+	}
+	if err := run(*googleOnly, *nomadMode, *portalMode, realApps); err != nil {
 		fmt.Fprintln(os.Stderr, "devstack:", err)
 		os.Exit(1)
 	}
@@ -81,7 +86,7 @@ type realApp struct {
 	bin  string
 }
 
-func run(googleOnly, nomadMode bool, realApps map[string]string) error {
+func run(googleOnly, nomadMode, portalMode bool, realApps map[string]string) error {
 	root, err := repoRoot()
 	if err != nil {
 		return err
@@ -161,7 +166,7 @@ func run(googleOnly, nomadMode bool, realApps map[string]string) error {
 	tdir := filepath.Join(dev, "traefik")
 	if nomadMode {
 		return runNomad(nomadSetup{
-			root: root, dev: dev, bin: bin, tdir: tdir, dotenv: dotenv, googleOnly: googleOnly,
+			root: root, dev: dev, bin: bin, tdir: tdir, dotenv: dotenv, googleOnly: googleOnly, portal: portalMode,
 			traefik: traefik, coreBin: coreBin, demoBin: demoBin, devApps: devApps.Apps(), reals: reals,
 		})
 	}
@@ -445,11 +450,11 @@ func prepareTraefik(root, tdir, static string, apps []*registry.App) (map[string
 		if a.Strips() {
 			strip = ", app-" + a.ID + "-strip"
 		}
-		fmt.Fprintf(&b, "    app-%s:\n      rule: \"%s\"\n      priority: 2000\n      service: app-%s\n      middlewares: [%s%s]\n",
-			a.ID, prefixRule(a.Path), a.ID, a.Chain(a.Auth), strip)
+		fmt.Fprintf(&b, "    app-%s:\n      rule: \"%s\"\n      priority: %d\n      service: app-%s\n      middlewares: [%s%s]\n",
+			a.ID, a.Rule(""), a.Priority(false), a.ID, a.Chain(a.Auth), strip)
 		for j, p := range a.Public {
-			fmt.Fprintf(&b, "    app-%s-public-%d:\n      rule: \"%s\"\n      priority: 3000\n      service: app-%s\n      middlewares: [%s%s]\n",
-				a.ID, j, prefixRule(a.Path+p), a.ID, a.Chain("none"), strip)
+			fmt.Fprintf(&b, "    app-%s-public-%d:\n      rule: \"%s\"\n      priority: %d\n      service: app-%s\n      middlewares: [%s%s]\n",
+				a.ID, j, a.Rule(p), a.Priority(true), a.ID, a.Chain("none"), strip)
 		}
 	}
 	b.WriteString("  middlewares:\n")
@@ -474,11 +479,6 @@ func freePort() (int, error) {
 	}
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port, nil
-}
-
-// prefixRule matches p and everything under it, but not p followed by other characters.
-func prefixRule(p string) string {
-	return fmt.Sprintf("Path(`%s`) || PathPrefix(`%s/`)", p, p)
 }
 
 func copyFile(src, dst string) error {

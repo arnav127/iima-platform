@@ -21,19 +21,29 @@ import (
 // (for apps' own admin screens) and the /admin pages.
 
 type actor struct {
-	Email string
-	Super bool
-	Apps  map[string]bool // apps this person is an app admin of
+	Email  string
+	Member bool // signed in with an @iima.ac.in account: may connect a repo
+	Super  bool
+	Apps   map[string]bool // apps this person is an app admin of
+	Owns   map[string]bool // portal apps this person owns (owners manage the app's roles too)
 }
 
 func (a *actor) canManage(app string) bool { return a.Super || a.Apps[app] }
 func (a *actor) isAdmin() bool             { return a.Super || len(a.Apps) > 0 }
+func (a *actor) canDeploy(app string) bool { return a.Super || a.Owns[app] }
 
 func (s *Server) actorFor(ctx context.Context, sess *store.Session) (*actor, error) {
-	a := &actor{Email: sess.User.Email, Apps: map[string]bool{}}
+	a := &actor{Email: sess.User.Email, Member: sess.User.Member, Apps: map[string]bool{}, Owns: map[string]bool{}}
 	var err error
 	if a.Super, err = s.cfg.Store.IsSuperAdmin(ctx, a.Email); err != nil {
 		return nil, err
+	}
+	owned, err := s.cfg.Store.OwnedApps(ctx, a.Email)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range owned {
+		a.Owns[id], a.Apps[id] = true, true
 	}
 	ids, err := s.cfg.Store.AdminOf(ctx, a.Email)
 	if err != nil {
@@ -43,7 +53,7 @@ func (s *Server) actorFor(ctx context.Context, sess *store.Session) (*actor, err
 		a.Apps[id] = true
 	}
 	// Holders of an app's manager_role manage it too.
-	for _, app := range s.cfg.Registry.Apps() {
+	for _, app := range s.registry().Apps() {
 		if app.ManagerRole == "" || a.Apps[app.ID] {
 			continue
 		}
@@ -171,7 +181,7 @@ func (s *Server) lookupPerson(ctx context.Context, email string) (*person, error
 	// member domain stands in for it.
 	member := strings.HasSuffix(email, "@"+strings.ToLower(s.cfg.MemberDomain))
 	p := &person{Email: email, Attributes: attrs.Derive(email, member, o, time.Now()), Override: o, Roles: map[string][]string{}}
-	for _, app := range s.cfg.Registry.Apps() {
+	for _, app := range s.registry().Apps() {
 		r, err := s.cfg.Store.Roles(ctx, app.ID, email)
 		if err != nil {
 			return nil, err
@@ -229,7 +239,7 @@ func (s *Server) apiError(w http.ResponseWriter, err error) {
 
 // apiApp finds {app} and checks the actor may manage it.
 func (s *Server) apiApp(w http.ResponseWriter, r *http.Request, a *actor) *registry.App {
-	app := s.cfg.Registry.ByID(r.PathValue("app"))
+	app := s.registry().ByID(r.PathValue("app"))
 	if app == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such app"})
 		return nil
@@ -253,7 +263,7 @@ func (s *Server) apiRoutes(mux *http.ServeMux) {
 			Roles []string `json:"roles"`
 		}
 		out := []appView{}
-		for _, app := range s.cfg.Registry.Apps() {
+		for _, app := range s.registry().Apps() {
 			if a.canManage(app.ID) {
 				out = append(out, appView{app.ID, app.Name, append([]string{}, app.Roles...)})
 			}

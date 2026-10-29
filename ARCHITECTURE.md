@@ -160,8 +160,9 @@ What lives where:
 
 ## The app manifest (`app.toml`)
 
-One small file per app, in the platform repo's `apps/` registry, reviewed by PR. The deploy portal and
-`core` both read it.
+One small file per app, at the root of the app's repo. The deploy portal reads it when the repo is
+connected and fills its settings form from it; after that the approved settings live in core (see Deploy
+portal). Apps set up by hand keep theirs in this repo's `apps/` folder.
 
 ```toml
 id      = "auxesiscapital"          # also the JWT aud and the Nomad job name
@@ -284,11 +285,36 @@ Portfolio League's close pipeline then runs in Inngest on that event: match orde
 
 ## Deploy portal (no SSH)
 
+Owners point the platform at a GitHub repo, fill in settings and env vars, and every push to `main`
+deploys by itself. The portal lives in `core` at `/admin/apps`.
+
 - **Control plane only.** It never runs or supervises apps, so apps keep running if the portal is down.
-- Owners connect a repo through a **GitHub App**. The portal reads `app.toml`, shows a form for env vars, secrets, path, auth mode and login policy, and has Deploy, Rollback and Logs.
-- **Builds run in GitHub Actions** (a reusable workflow from the template), never on our servers, because building runs arbitrary install scripts. Artifacts are published as releases tagged by commit.
-- The portal turns the manifest and config into a **Nomad job** and submits it. Nomad downloads the artifact, starts it, restarts it, and keeps the previous version for one-click rollback. Secrets go into Nomad Variables.
-- **A new app's first deploy needs super-admin approval** (the review step). Later deploys by its owners go straight through.
+- **Apps live in core's database.** The files in `apps/` remain for apps set up by hand; core's registry is
+  both together, and ids and paths must be unique across them. (This replaces "the registry is the files in
+  `apps/`, reviewed by PR" for portal apps: the super-admin review below is the review.)
+- **Connecting a repo.** Any @iima.ac.in user installs the platform's **GitHub App** on their repo and picks
+  it in the portal. The repo must have an `app.toml` at its root whose `owners` include that person, which
+  proves they can write to it; the portal fills its form from that file. The person becomes an owner and
+  can add co-owners.
+- **Approval.** A new app stays offline until a super admin approves it. Later changes to its path, login,
+  auth mode, public paths or shape wait for approval too, while the live app keeps its approved settings.
+  Everything else (name, roles, memory, env vars, owners) applies at once.
+- **Builds run in GitHub Actions**, never on our servers, because building runs arbitrary install scripts.
+  The repo calls the platform's reusable workflow (`.github/workflows/build-app.yml`), which on every push to
+  `main` publishes a GitHub release `build-<commit>` with `app.tar.gz` and its SHA-256.
+- **Auto-deploy.** The portal notices new releases by webhook, or by polling every two minutes when
+  GitHub cannot reach us. For an approved app it deploys the newest release on `main`. A release that
+  fails its health check rolls back by itself (Nomad `auto_revert`).
+- **Artifacts go through core.** Core downloads the release with the App's short-lived token, checks the
+  SHA-256, keeps the last few per app on its volume, and Nomad clients fetch them from core over the cluster
+  network (`/platform/artifacts/<sha256>.tar.gz`). The gateway blocks that path, and core refuses it when
+  a request came through the gateway. So private repos work and no GitHub token is ever handed to Nomad.
+- **Deploys** are `jobgen` plus Nomad's jobs API, with a Nomad token under the `deploy` policy. PocketBase
+  apps get their data volume created on the first deploy. **Rollback** is deploying an earlier release.
+  **Logs** show the app's recent output from Nomad.
+- **Env vars:** plain values are stored in core and put in the job; **secrets** go straight into the app's
+  Nomad Variable (`nomad/jobs/<id>`) and are never shown again (only their names).
+- Every portal action goes into the audit log.
 - Later: an `iima` CLI (`iima new`, `iima dev`, `iima deploy`, `iima logs`, `iima backup restore`) over the same API.
 
 ## Observability, backups, operations

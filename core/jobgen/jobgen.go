@@ -26,6 +26,9 @@ type Cluster struct {
 	JWKSURL string `toml:"jwks_url"`
 	// LocalDataRoot holds app data with raw_exec, which cannot mount volumes: <root>/<app id>.
 	LocalDataRoot string `toml:"local_data_root"`
+	// BinarySuffix is ".exe" for a local Nomad on Windows: Nomad looks for the exact file name, and a
+	// build made for Windows is app.exe. Empty on the Linux cluster.
+	BinarySuffix string `toml:"binary_suffix"`
 }
 
 // Release is one build of an app: a tar.gz with the binary at ./app and, for PocketBase apps,
@@ -47,10 +50,7 @@ var healthPath = map[string]string{
 	"go":            "/health",
 }
 
-const (
-	priorityApp    = 2000
-	priorityPublic = 3000
-)
+const ()
 
 // Build returns the Nomad job for app.
 func Build(c Cluster, app *registry.App, rel Release) (*Job, error) {
@@ -95,7 +95,7 @@ func Build(c Cluster, app *registry.App, rel Release) (*Job, error) {
 		}},
 	}
 
-	binary, publicDir := "local/app", "local/pb_public"
+	binary, publicDir := "local/app"+c.BinarySuffix, "local/pb_public"
 	if local {
 		binary, publicDir = rel.Command, rel.PublicDir
 	} else {
@@ -165,8 +165,8 @@ func Tags(app *registry.App) []string {
 	mw := []string{app.Chain(app.Auth) + "@file"}
 	tags := []string{
 		"traefik.enable=true",
-		fmt.Sprintf("traefik.http.routers.%s.rule=%s", id, prefixRule(app.Path)),
-		fmt.Sprintf("traefik.http.routers.%s.priority=%d", id, priorityApp),
+		fmt.Sprintf("traefik.http.routers.%s.rule=%s", id, app.Rule("")),
+		fmt.Sprintf("traefik.http.routers.%s.priority=%d", id, app.Priority(false)),
 		fmt.Sprintf("traefik.http.routers.%s.entrypoints=public", id),
 	}
 	if app.Strips() {
@@ -181,8 +181,8 @@ func Tags(app *registry.App) []string {
 			pmw = append(pmw, id+"-strip")
 		}
 		tags = append(tags,
-			fmt.Sprintf("traefik.http.routers.%s.rule=%s", r, prefixRule(app.Path+p)),
-			fmt.Sprintf("traefik.http.routers.%s.priority=%d", r, priorityPublic),
+			fmt.Sprintf("traefik.http.routers.%s.rule=%s", r, app.Rule(p)),
+			fmt.Sprintf("traefik.http.routers.%s.priority=%d", r, app.Priority(true)),
 			fmt.Sprintf("traefik.http.routers.%s.entrypoints=public", r),
 			fmt.Sprintf("traefik.http.routers.%s.middlewares=%s", r, strings.Join(pmw, ",")),
 			fmt.Sprintf("traefik.http.routers.%s.service=%s", r, id),
@@ -192,8 +192,6 @@ func Tags(app *registry.App) []string {
 	slices.Sort(tags)
 	return tags
 }
-
-func prefixRule(p string) string { return fmt.Sprintf("Path(`%s`) || PathPrefix(`%s/`)", p, p) }
 
 func orDefault(v, d int) int {
 	if v > 0 {

@@ -26,7 +26,7 @@ func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 
 	uri := r.Header.Get("X-Forwarded-Uri")
-	app := s.cfg.Registry.Lookup(uri)
+	app := s.registry().Lookup(uri)
 	sess := s.session(r)
 
 	switch {
@@ -92,7 +92,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"affiliation": a.Affiliation, "programme": a.Programme, "batch": a.Batch, "year": a.Year,
 	}
 	if id := r.URL.Query().Get("app"); id != "" {
-		if app := s.cfg.Registry.ByID(id); app != nil {
+		if app := s.registry().ByID(id); app != nil {
 			ok := allowed(u, app)
 			out["allowed"] = ok
 			if ok {

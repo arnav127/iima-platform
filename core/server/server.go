@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arnav127/iima-platform/core/portal"
 	"github.com/arnav127/iima-platform/core/registry"
 	"github.com/arnav127/iima-platform/core/store"
 	"github.com/arnav127/iima-platform/core/token"
@@ -35,7 +36,10 @@ type Config struct {
 	// cmd/core refuses to turn it on unless PublicURL is localhost.
 	DevLogin bool
 
+	// Registry is the apps from apps/*.toml. With a Portal, the portal's registry (those plus approved
+	// portal apps, kept up to date) is used instead.
 	Registry *registry.Registry
+	Portal   *portal.Portal // the deploy portal; nil turns it off
 	Store    *store.Store
 	Signer   *token.Signer
 	Provider Provider // Google; nil when not configured
@@ -70,13 +74,23 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /auth/.well-known/jwks.json", s.handleJWKS)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	s.apiRoutes(mux)
+	s.portalRoutes(mux)
 	s.adminRoutes(mux)
 	mux.HandleFunc("GET /{$}", s.handleHome)
+	mux.HandleFunc("GET /platform/apps", s.handleHome) // the directory, also when a home app owns /
 	mux.HandleFunc("/", s.handleNotFound)
 	return mux
 }
 
 // allowed is the login policy: IIMA-only apps need a verified @iima.ac.in Google account.
+// registry returns the live set of apps.
+func (s *Server) registry() *registry.Registry {
+	if s.cfg.Portal != nil {
+		return s.cfg.Portal.Registry()
+	}
+	return s.cfg.Registry
+}
+
 func allowed(u store.User, a *registry.App) bool {
 	return a.Login == registry.LoginExternal || u.Member
 }

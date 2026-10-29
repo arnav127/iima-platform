@@ -32,6 +32,7 @@ type nomadSetup struct {
 	root, dev, bin, tdir string
 	dotenv               map[string]string
 	googleOnly           bool
+	portal               bool
 	traefik              string
 	coreBin, demoBin     string
 	devApps              []*registry.App
@@ -71,12 +72,26 @@ func runNomad(s nomadSetup) error {
 	}
 	g.start(ctx, "traefik", s.traefik, []string{"--configFile=traefik.yml"}, s.tdir, map[string]string{"IIMA_CORE_URL": "http://127.0.0.1:8081"})
 
-	var jobs []*jobgen.Job
-	jobs = append(jobs, coreJob(s))
 	cluster := jobgen.Cluster{
 		Datacenter: "dc1", Driver: "raw_exec", PublicURL: "http://localhost:8080",
 		JWKSURL: "http://127.0.0.1:8081/auth/.well-known/jwks.json", LocalDataRoot: filepath.Join(s.dev, "data"),
 	}
+	var portalEnv map[string]string
+	if s.portal {
+		toml := fmt.Sprintf("datacenter = %q\ndriver = %q\npublic_url = %q\njwks_url = %q\nlocal_data_root = %q\n",
+			cluster.Datacenter, cluster.Driver, cluster.PublicURL, cluster.JWKSURL, filepath.ToSlash(cluster.LocalDataRoot))
+		if runtime.GOOS == "windows" {
+			toml += `binary_suffix = ".exe"` + "\n"
+		}
+		var closeGH func()
+		if portalEnv, closeGH, err = portalDemo(s, toml); err != nil {
+			g.stopAll()
+			return err
+		}
+		defer closeGH()
+	}
+	var jobs []*jobgen.Job
+	jobs = append(jobs, coreJob(s, portalEnv))
 	for _, a := range s.devApps {
 		j, err := jobgen.Build(cluster, a, jobgen.Release{Version: "dev", Command: s.demoBin, Env: map[string]string{"APP_ID": a.ID}})
 		if err != nil {
@@ -145,7 +160,7 @@ func runNomad(s nomadSetup) error {
 
 // coreJob is the local twin of deploy/nomad/core.nomad.hcl: the binary in place, raw_exec,
 // data in .dev/core-data, dev sign-in on.
-func coreJob(s nomadSetup) *jobgen.Job {
+func coreJob(s nomadSetup, extra map[string]string) *jobgen.Job {
 	env := map[string]string{
 		"PUBLIC_URL": "http://localhost:8080",
 		"CORE_DATA":  filepath.Join(s.dev, "core-data"),
@@ -155,6 +170,9 @@ func coreJob(s nomadSetup) *jobgen.Job {
 		env["CORE_DEV_LOGIN"] = "1"
 	}
 	for k, v := range s.dotenv {
+		env[k] = v
+	}
+	for k, v := range extra {
 		env[k] = v
 	}
 	return &jobgen.Job{

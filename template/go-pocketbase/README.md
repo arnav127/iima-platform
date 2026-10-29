@@ -12,7 +12,10 @@ so a new app starts with its own features.
    in `backend/go.mod`.
 3. Point the kits at the platform: in `backend/go.mod` the `replace` lines and in `package.json` the
    `@iima/kit` path assume this repo sits next to `iima-platform` (fix `../../` to `../`).
-4. Add `app.toml` to `iima-platform/apps/` with a pull request.
+4. Push to GitHub, then connect the repo at `https://students.iima.ac.in/admin/apps/new` (install the
+   platform's GitHub App on it when asked). Once a super admin approves it, every push to `main`
+   builds a release (`.github/workflows/deploy.yml`) and deploys it. Env vars and secrets are set on
+   the app's page there.
 
 ## Work on it
 

@@ -59,8 +59,46 @@ var (
 	shapes = []string{"go-pocketbase", "go", "next", "python", "pocketbase"}
 )
 
-// Strips reports whether the gateway removes the app's path before forwarding.
-func (a *App) Strips() bool { return a.StripPath == nil || *a.StripPath }
+// RootPath is the home app's path: it gets every request no other app or the platform claims.
+const RootPath = "/"
+
+// IsRoot reports whether this is the home app at "/".
+func (a *App) IsRoot() bool { return a.Path == RootPath }
+
+// Strips reports whether the gateway removes the app's path before forwarding. Never for the home app.
+func (a *App) Strips() bool { return !a.IsRoot() && (a.StripPath == nil || *a.StripPath) }
+
+// Route priorities in the gateway. Higher wins. The home app sits just above core's catch-all (1)
+// and below everything else, so it only gets what nothing more specific claims; even its public
+// paths stay below every other app.
+const (
+	PriorityApp        = 2000
+	PriorityAppPublic  = 3000
+	PriorityRoot       = 10
+	PriorityRootPublic = 20
+)
+
+// Rule is the gateway rule for the app's path plus sub (a public path, or "").
+func (a *App) Rule(sub string) string {
+	if a.IsRoot() && sub == "" {
+		return "PathPrefix(`/`)"
+	}
+	p := strings.TrimSuffix(a.Path, "/") + sub
+	return fmt.Sprintf("Path(`%s`) || PathPrefix(`%s/`)", p, p)
+}
+
+// Priority is the gateway priority of the app's main route, or of its public routes.
+func (a *App) Priority(public bool) int {
+	switch {
+	case a.IsRoot() && public:
+		return PriorityRootPublic
+	case a.IsRoot():
+		return PriorityRoot
+	case public:
+		return PriorityAppPublic
+	}
+	return PriorityApp
+}
 
 // Chain is the gateway middleware chain (defined in deploy/traefik/dynamic/platform.yml) for this
 // app's routes under the given auth mode. Next.js apps get the "-next" variant, which leaves the
@@ -119,6 +157,12 @@ func Parse(b []byte) (*App, error) {
 	if und := md.Undecoded(); len(und) > 0 {
 		return nil, fmt.Errorf("unknown field %q", und[0].String())
 	}
+	return &a, a.Normalize()
+}
+
+// Normalize fills in defaults and validates the app on its own (not against other apps). The deploy
+// portal calls it on settings that come from a form rather than a file.
+func (a *App) Normalize() error {
 	if a.Login == "" {
 		a.Login = LoginIIMA
 	}
@@ -129,16 +173,16 @@ func Parse(b []byte) (*App, error) {
 		strip := a.Shape != "next"
 		a.StripPath = &strip
 	}
-	return &a, a.validate()
+	return a.validate()
 }
 
 func (a *App) validate() error {
 	switch {
 	case !idRe.MatchString(a.ID):
 		return fmt.Errorf("id %q: use 2 to 40 lowercase letters, digits and dashes", a.ID)
-	case !pathRe.MatchString(a.Path):
-		return fmt.Errorf("path %q: must be a single segment like /myapp", a.Path)
-	case slices.Contains(Reserved, a.Path[1:]):
+	case !pathRe.MatchString(a.Path) && a.Path != RootPath:
+		return fmt.Errorf("path %q: must be a single segment like /myapp, or / for the home app", a.Path)
+	case a.Path != RootPath && slices.Contains(Reserved, a.Path[1:]):
 		return fmt.Errorf("path %q is reserved for the platform", a.Path)
 	case a.Name == "":
 		return fmt.Errorf("name is required")
@@ -191,7 +235,8 @@ func (r *Registry) Apps() []*App {
 // ByID returns the app with this id, or nil.
 func (r *Registry) ByID(id string) *App { return r.byID[id] }
 
-// Lookup returns the app that owns a request URI such as "/demo/api/x?y=1", or nil.
+// Lookup returns the app that owns a request URI such as "/demo/api/x?y=1", or nil. Paths no app
+// claims belong to the home app at "/" when there is one, except the platform's reserved ones.
 // The path is decoded and cleaned first, so "/demo/../other" belongs to "/other", like the
 // gateway sees it. Even if the gateway and core ever disagreed, the token's aud would make the
 // app that actually receives the request reject it.
@@ -202,5 +247,11 @@ func (r *Registry) Lookup(uri string) *App {
 	}
 	p := path.Clean("/" + u.Path)
 	first, _, _ := strings.Cut(p[1:], "/")
-	return r.byPath["/"+first]
+	if a := r.byPath["/"+first]; a != nil {
+		return a
+	}
+	if slices.Contains(Reserved, first) {
+		return nil
+	}
+	return r.byPath[RootPath]
 }

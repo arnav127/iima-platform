@@ -1,0 +1,104 @@
+# The platform's build for app repos. An app calls it from its own workflow (see
+# template/go-pocketbase/.github/workflows/deploy.yml); on every push it builds the app for the
+# cluster and publishes a GitHub release build-<commit> with app.tar.gz and app.tar.gz.sha256.
+# The deploy portal picks the release up and deploys it.
+#
+# app.tar.gz holds ./app (a Linux binary) and, for PocketBase apps, ./pb_public (the built frontend).
+# Builds run here, on GitHub, so no app's install scripts ever run on campus servers.
+name: build-app
+
+on:
+  workflow_call:
+    inputs:
+      backend-dir:
+        description: The Go module to build, relative to the repo root
+        type: string
+        default: backend
+      public-dir:
+        description: Where the frontend build lands (PocketBase apps), relative to the repo root
+        type: string
+        default: backend/pb_public
+      platform-ref:
+        description: Which iima-platform commit to build the kits from (until they are published)
+        type: string
+        default: main
+
+permissions:
+  contents: write # to publish the release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+      # The app's go.mod and package.json point at ../iima-platform for the kits.
+      - uses: actions/checkout@v4
+        with:
+          repository: arnav127/iima-platform
+          ref: ${{ inputs.platform-ref }}
+          path: iima-platform
+
+      - name: Read app.toml
+        id: app
+        working-directory: app
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import tomllib
+          a = tomllib.load(open("app.toml", "rb"))
+          print("id=" + a["id"])
+          print("path=" + a["path"])
+          print("shape=" + a.get("shape", ""))
+          EOF
+
+      - uses: actions/setup-node@v4
+        if: hashFiles('app/package.json') != ''
+        with:
+          node-version: "24"
+      - name: Build the frontend
+        if: hashFiles('app/package.json') != ''
+        working-directory: app
+        env:
+          VITE_BASE: ${{ steps.app.outputs.path }}/
+        run: |
+          (cd ../iima-platform/kit-js && npm ci)
+          npm ci
+          npm audit --omit=dev --audit-level=high
+          npm run build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+      - name: Test and build the backend
+        working-directory: app/${{ inputs.backend-dir }}
+        env:
+          GOWORK: "off"
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          go vet ./...
+          GOOS= GOARCH= go test ./...
+          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          go build -trimpath -ldflags "-s -w" -o "$GITHUB_WORKSPACE/dist/app" .
+
+      - name: Package
+        run: |
+          if [ "${{ steps.app.outputs.shape }}" = "go-pocketbase" ]; then
+            cp -r "app/${{ inputs.public-dir }}" dist/pb_public
+          fi
+          tar -czf app.tar.gz -C dist .
+          sha256sum app.tar.gz > app.tar.gz.sha256
+          cat app.tar.gz.sha256
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="build-${GITHUB_SHA::7}"
+          gh release create "$tag" app.tar.gz app.tar.gz.sha256 \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "$tag" --notes "Build of $GITHUB_SHA for students.iima.ac.in${{ steps.app.outputs.path }}"

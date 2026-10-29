@@ -17,7 +17,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	rd := safeOr(q.Get("rd"), "/")
 	switchAccount := q.Get("switch") == "1"
-	app := s.cfg.Registry.Lookup(rd)
+	app := s.registry().Lookup(rd)
 
 	// Already signed in: go straight back, or to the "needs your IIMA account" page.
 	if sess := s.session(r); sess != nil && !switchAccount {
@@ -162,7 +162,7 @@ func (s *Server) finishLogin(w http.ResponseWriter, r *http.Request, u *store.Us
 	s.setCookie(w, sessionCookie, tok, "/", s.cfg.SessionTTL)
 	s.cfg.Log.Info("signed in", "user", u.ID, "provider", u.Provider, "member", u.Member, "sid", sid)
 
-	if app := s.cfg.Registry.Lookup(rd); app != nil && !allowed(*u, app) {
+	if app := s.registry().Lookup(rd); app != nil && !allowed(*u, app) {
 		http.Redirect(w, r, deniedURL(rd), http.StatusFound)
 		return
 	}
@@ -198,7 +198,7 @@ func (s *Server) handleDenied(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, loginURL(rd), http.StatusFound)
 		return
 	}
-	app := s.cfg.Registry.Lookup(rd)
+	app := s.registry().Lookup(rd)
 	if app == nil || allowed(sess.User, app) {
 		http.Redirect(w, r, rd, http.StatusFound)
 		return

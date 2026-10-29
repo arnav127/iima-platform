@@ -127,3 +127,17 @@ func TestJobLocal(t *testing.T) {
 		t.Fatalf("config: %v", task.Config)
 	}
 }
+
+func TestBinarySuffix(t *testing.T) {
+	a := app(t, `id="svc"`+"\n"+`name="S"`+"\n"+`path="/svc"`+"\n"+`shape="go"`)
+	rel := Release{Version: "v1", ArtifactURL: "http://core/platform/artifacts/x.tar.gz", SHA256: strings.Repeat("a", 64)}
+	for suffix, want := range map[string]string{"": "local/app", ".exe": "local/app.exe"} {
+		j, err := Build(Cluster{Datacenter: "dc1", Driver: "raw_exec", BinarySuffix: suffix}, a, rel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := j.TaskGroups[0].Tasks[0].Config["command"]; got != want {
+			t.Fatalf("suffix %q: command %v, want %s", suffix, got, want)
+		}
+	}
+}

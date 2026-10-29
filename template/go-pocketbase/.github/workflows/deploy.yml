@@ -1,0 +1,14 @@
+# Builds the app for students.iima.ac.in on every push to main. The platform's deploy portal picks up
+# the release this publishes and deploys it (connect the repo at /admin/apps/new first).
+name: deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    uses: arnav127/iima-platform/.github/workflows/build-app.yml@main

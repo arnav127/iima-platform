@@ -84,7 +84,7 @@ http:
     # Never public: the forward-auth endpoint, and every app's PocketBase dashboard (/<app>/_/)
     # and superuser API. Admins reach dashboards through an SSH tunnel.
     blocked:
-      rule: "Path(`/auth/verify`) || PathRegexp(`^/[^/]+/_(/|$)`) || PathRegexp(`^/[^/]+/api/collections/_superusers(/|$)`)"
+      rule: "Path(`/auth/verify`) || PathPrefix(`/platform/artifacts/`) || PathRegexp(`^/[^/]+/_(/|$)`) || PathRegexp(`^/[^/]+/api/collections/_superusers(/|$)`)"
       priority: 10000
       service: core
       middlewares: [platform, to-404]
