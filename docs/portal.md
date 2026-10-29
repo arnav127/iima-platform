@@ -49,6 +49,7 @@ the build, not here.
   point at the upstream come back as the public path, websockets and server-sent events pass through
   (tick "realtime" for event streams or long polling). It is live within seconds. When the app is
   ported, connect its repo with the same path: approving it replaces the route.
+- **Porting an app that runs today under PM2**, with its data: [porting.md](porting.md).
 - **Moving a hand-made app into the portal** (one in `apps/`, like Auxesis): give its repo an
   `app.toml` and the deploy workflow, delete its file from `apps/` and redeploy core, then connect the
   repo and approve it. Keep the same `id` and `volume`, so its roles and data carry over.

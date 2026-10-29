@@ -56,7 +56,8 @@ templates as demo repos: connect one, approve it, and it deploys. See [docs/port
 
 Owners connect a GitHub repo at `/admin/apps/new`; every push to `main` builds and deploys once a
 super admin has approved the app. Start from `template/go-pocketbase`, `template/next` or `template/python`. Guide:
-[docs/portal.md](docs/portal.md).
+[docs/portal.md](docs/portal.md). Moving an app that runs today under PM2, with its data:
+[docs/porting.md](docs/porting.md).
 
 ## Layout
 
