@@ -512,3 +512,9 @@ func fromTraefik(r *http.Request) bool {
 	}
 	return true
 }
+
+// Shell puts admin pages in the sidebar layout.
+func (d deployData) Shell() bool { return true }
+
+// IsSuper shows the super admins' links in the sidebar.
+func (d deployData) IsSuper() bool { return d.Actor != nil && d.Actor.Super }

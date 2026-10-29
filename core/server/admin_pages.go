@@ -30,6 +30,12 @@ type adminData struct {
 	Affiliations          []string
 	Portal                bool        // the deploy portal is on
 	PortalApps            []portalRow // apps this person owns, or every portal app for super admins
+	Stats                 *dashStats
+}
+
+// dashStats are the dashboard's numbers.
+type dashStats struct {
+	Total, Live, Manual, Routes, Waiting int
 }
 
 type portalRow struct {
@@ -39,29 +45,38 @@ type portalRow struct {
 
 var adminPages = template.Must(template.Must(pages.Clone()).Funcs(template.FuncMap{
 	"has": func(list []string, v string) bool { return slices.Contains(list, v) },
+	"inc": func(i int) int { return i + 1 },
 }).Parse(`
-{{define "adminnav"}}<div class="subnav"><a href="/admin"{{if eq .Title "Dashboard"}} class="on"{{end}}>Dashboard</a>{{if .Actor.Super}}<a href="/admin/people"{{if eq .Title "People"}} class="on"{{end}}>People</a><a href="/admin/super-admins"{{if eq .Title "Super admins"}} class="on"{{end}}>Super admins</a><a href="/admin/audit"{{if eq .Title "Audit log"}} class="on"{{end}}>Audit log</a>{{if .Portal}}<a href="/admin/routes"{{if eq .Title "Routes"}} class="on"{{end}}>Routes</a><a href="/admin/github">GitHub App</a>{{end}}{{end}}</div>
-{{if .Message}}<div class="note ok">{{.Message}}</div>{{end}}{{if .Error}}<div class="note err">{{.Error}}</div>{{end}}{{end}}
+{{define "adminnav"}}{{if .Message}}<div class="note ok">{{.Message}}</div>{{end}}{{if .Error}}<div class="note err">{{.Error}}</div>{{end}}{{end}}
 
 {{define "statuspill"}}{{if eq . "approved"}}<span class="pill ok">live</span>{{else if eq . "pending"}}<span class="pill warn">waiting for approval</span>{{else}}<span class="pill bad">turned down</span>{{end}}{{end}}
 
 {{define "admin"}}{{template "top" .}}
-<div class="head"><div><h1>Dashboard</h1><p class="muted">{{if .Actor.Super}}You are a super admin: you approve new apps and appoint app admins.{{else}}Your apps and the roles you manage.{{end}}</p></div>
+<div class="head"><div><h1>Dashboard</h1><p class="muted">{{if .Actor.Super}}You are a super admin: you approve apps, set up routes and appoint app admins.{{else}}Your apps and the roles you manage.{{end}}</p></div>
 {{if .Portal}}<a class="btn" href="/admin/apps/new">Connect an app</a>{{end}}</div>
 {{template "adminnav" .}}
+{{with .Stats}}<div class="cards">
+<div class="kpi"><b>{{.Total}}</b><span>Apps on the site</span></div>
+<div class="kpi"><b>{{.Live}}</b><span>{{if $.Actor.Super}}Deployed from GitHub{{else}}Your live apps{{end}}</span></div>
+<div class="kpi"><b>{{.Waiting}}</b><span>Waiting for approval</span></div>
+<div class="kpi"><b>{{.Routes}}</b><span>External routes</span></div>
+</div>
+{{if .Total}}<div class="section"><h2>Apps by how they run</h2>
+<div class="stats"><div class="stat y"><b>{{.Live}}</b><span>Deployed from GitHub</span></div><div class="stat g2"><b>{{.Manual}}</b><span>Set up by hand</span></div><div class="stat g"><b>{{.Routes}}</b><span>External routes</span></div><div class="stat d"><b>{{.Waiting}}</b><span>Waiting</span></div></div>
+<div class="bars">{{if .Live}}<i class="y" style="flex:{{.Live}}"></i>{{end}}{{if .Manual}}<i class="g2" style="flex:{{.Manual}}"></i>{{end}}{{if .Routes}}<i class="g" style="flex:{{.Routes}}"></i>{{end}}{{if .Waiting}}<i class="d" style="flex:{{.Waiting}}"></i>{{end}}</div></div>{{end}}{{end}}
 {{if .Portal}}
 {{if .Actor.Super}}{{$w := false}}{{range .PortalApps}}{{if .Waiting}}{{$w = true}}{{end}}{{end}}
 {{if $w}}<div class="section"><h2>Waiting for your approval</h2><table><tr><th>App</th><th>Path</th><th>Repo</th><th></th></tr>
-{{range .PortalApps}}{{if .Waiting}}<tr><td><b>{{.Name}}</b></td><td><code>{{.Path}}</code></td><td>{{.Repo}}</td><td><a class="btn sm" href="/admin/apps/{{.ID}}/deploy">Review</a></td></tr>{{end}}{{end}}
+{{range .PortalApps}}{{if .Waiting}}<tr><td><b>{{.Name}}</b></td><td><code>{{.Path}}</code></td><td class="muted">{{.Repo}}</td><td style="text-align:right"><a class="btn sm yellow" href="/admin/apps/{{.ID}}/deploy">Review</a></td></tr>{{end}}{{end}}
 </table></div>{{end}}{{end}}
-<div class="section"><h2>{{if .Actor.Super}}All deployed apps{{else}}Your apps{{end}}</h2>
-{{if .PortalApps}}<table><tr><th>App</th><th>Path</th><th>Repo</th><th>Status</th></tr>
-{{range .PortalApps}}<tr><td><a href="/admin/apps/{{.ID}}/deploy"><b>{{.Name}}</b></a></td><td><code>{{.Path}}</code></td><td class="muted">{{.Repo}}</td><td>{{template "statuspill" .Status}}{{if and .Waiting (eq .Status "approved")}} <span class="pill warn">change waiting</span>{{end}}</td></tr>{{end}}
+<div class="section"><h2>{{if .Actor.Super}}Deployed apps{{else}}Your apps{{end}}</h2>
+{{if .PortalApps}}<table><tr><th></th><th>App</th><th>Path</th><th>Repo</th><th>Status</th></tr>
+{{range $i, $a := .PortalApps}}<tr><td class="muted small">{{inc $i}}</td><td><a href="/admin/apps/{{.ID}}/deploy"><b>{{.Name}}</b></a></td><td><code>{{.Path}}</code></td><td class="muted">{{.Repo}}</td><td>{{template "statuspill" .Status}}{{if and .Waiting (eq .Status "approved")}} <span class="pill warn">change waiting</span>{{end}}</td></tr>{{end}}
 </table>{{else}}<p class="muted">Nothing here yet. <a href="/admin/apps/new">Connect a GitHub repo</a> to host your app on this site.</p>{{end}}</div>
 {{end}}
 <div class="section"><h2>Roles you manage</h2>
 {{if .Apps}}<table><tr><th>App</th><th>Path</th><th>Who may sign in</th><th>Roles</th></tr>
-{{range .Apps}}<tr><td><a href="/admin/apps/{{.ID}}"><b>{{.Name}}</b></a></td><td><code>{{.Path}}</code></td><td>{{if eq .Login "external"}}any Google account{{else}}@iima.ac.in{{end}}</td><td>{{range $i, $r := .Roles}}{{if $i}}, {{end}}{{$r}}{{else}}<span class="muted">none</span>{{end}}</td></tr>{{end}}
+{{range .Apps}}<tr><td><a href="/admin/apps/{{.ID}}"><b>{{.Name}}</b></a>{{if eq .Shape "external"}} <span class="pill acc">route</span>{{end}}</td><td><code>{{.Path}}</code></td><td>{{if eq .Login "external"}}any Google account{{else}}@iima.ac.in{{end}}</td><td>{{range $i, $r := .Roles}}{{if $i}}, {{end}}{{$r}}{{else}}<span class="muted">none</span>{{end}}</td></tr>{{end}}
 </table>{{else}}<p class="muted">You don't manage roles in any app.</p>{{end}}</div>
 {{template "bottom" .}}{{end}}
 
@@ -220,6 +235,32 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 			}
 			d.PortalApps = rows
 		}
+		st := &dashStats{}
+		for _, app := range s.registry().Apps() {
+			switch {
+			case app.Shape == registry.ShapeExternal:
+				st.Routes++
+			case app.File == "portal":
+				st.Live++
+			default:
+				st.Manual++
+			}
+		}
+		st.Total = st.Live + st.Manual + st.Routes
+		for _, row := range d.PortalApps {
+			if row.Waiting {
+				st.Waiting++
+			}
+		}
+		if !a.Super { // owners: their own apps
+			st.Live = 0
+			for _, row := range d.PortalApps {
+				if row.Status == "approved" {
+					st.Live++
+				}
+			}
+		}
+		d.Stats = st
 		s.renderAdmin(w, http.StatusOK, "admin", d)
 	})
 
@@ -367,3 +408,9 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 		s.renderAdmin(w, http.StatusOK, "adminaudit", adminData{Title: "Audit log", Actor: a, Audit: auditRows(entries)})
 	})
 }
+
+// Shell puts admin pages in the sidebar layout.
+func (d adminData) Shell() bool { return true }
+
+// IsSuper shows the super admins' links in the sidebar.
+func (d adminData) IsSuper() bool { return d.Actor != nil && d.Actor.Super }
